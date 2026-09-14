@@ -1,0 +1,32 @@
+# Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+*/target/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+
+# Temporary & Local
+.m2/
+.claude/
+*.tmp
+*.bak
