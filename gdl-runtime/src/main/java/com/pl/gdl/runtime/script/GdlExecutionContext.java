@@ -16,6 +16,9 @@ import com.pl.gdl.dataframe.operator.realtime.PeriodReactorOperator;
 import com.pl.gdl.dataframe.operator.realtime.TaskReactorOperator;
 import com.pl.gdl.runtime.dag.DagGraph;
 import com.pl.gdl.runtime.dag.DagNode;
+import com.pl.gdl.runtime.federation.FederatedJoinExecutor;
+import com.pl.gdl.runtime.federation.FederatedJoinRequest;
+import com.pl.gdl.runtime.federation.FederatedJoinResult;
 import com.pl.gdl.runtime.plan.DatasourceExecutionPlanner;
 import com.pl.gdl.runtime.plan.ExecutionIntent;
 import com.pl.gdl.runtime.plan.ExecutionPlan;
@@ -31,6 +34,7 @@ public class GdlExecutionContext {
     private DatasourceRegistry datasourceRegistry;
     private DatasourceExecutionPlanner executionPlanner;
     private final List<ExecutionPlan> executionPlans = new ArrayList<>();
+    private final List<FederatedJoinResult> federatedJoinResults = new ArrayList<>();
     private final DagGraph dagGraph = new DagGraph();
     private final Map<String, Object> scriptParameters = new LinkedHashMap<>();
     private final Set<String> registeredTempTables = new LinkedHashSet<>();
@@ -59,6 +63,7 @@ public class GdlExecutionContext {
         this.executionPlanner = executionPlanner != null ? executionPlanner : new DatasourceExecutionPlanner();
     }
     public List<ExecutionPlan> getExecutionPlans() { return Collections.unmodifiableList(executionPlans); }
+    public List<FederatedJoinResult> getFederatedJoinResults() { return Collections.unmodifiableList(federatedJoinResults); }
     public DagGraph getDagGraph() { return dagGraph; }
     public Map<String, Object> getScriptParameters() { return scriptParameters; }
 
@@ -100,6 +105,14 @@ public class GdlExecutionContext {
         ExecutionPlan plan = plan(ds, ExecutionIntent.SQL_WRITE);
         dagGraph.addNode(datasourceNode(nodeId, "insert " + targetTable, "InsertOperator", "insert", ds, plan));
         return new CmdDataframeImpl(op, plan.engine());
+    }
+
+    public FederatedJoinResult executeFederatedJoin(FederatedJoinRequest request) {
+        FederatedJoinExecutor executor = new FederatedJoinExecutor(datasourceRegistry, executionPlanner, executionEngine);
+        FederatedJoinResult result = executor.execute(request);
+        executionPlans.addAll(result.sourcePlans());
+        federatedJoinResults.add(result);
+        return result;
     }
 
     private ExecutionPlan plan(CmdDatasource datasource, ExecutionIntent intent) {
