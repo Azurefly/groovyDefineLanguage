@@ -96,7 +96,8 @@ public class DatasourceRegistry {
         Set<DatasourceCapability> jdbcCaps = EnumSet.of(
                 DatasourceCapability.READ, DatasourceCapability.WRITE,
                 DatasourceCapability.SQL, DatasourceCapability.JDBC,
-                DatasourceCapability.TRANSACTION);
+                DatasourceCapability.TRANSACTION, DatasourceCapability.METADATA,
+                DatasourceCapability.HEALTH_CHECK);
 
         registry.register(provider("POSTGRES", jdbcCaps, new PostgresSqlDialect(), cfg ->
                 new PostgresDatasource(str(cfg, "host", "localhost"), integer(cfg, "port", 5432),
