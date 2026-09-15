@@ -5,6 +5,7 @@ import com.pl.gdl.dataframe.dataframe.CmdDataframe;
 import com.pl.gdl.dataframe.datasource.*;
 import com.pl.gdl.dataframe.operator.advanced.HttpOperator;
 import com.pl.gdl.dataframe.operator.advanced.PythonScriptOperator;
+import com.pl.gdl.runtime.federation.FederatedJoinRequest;
 import groovy.lang.Closure;
 import groovy.lang.Script;
 
@@ -55,6 +56,27 @@ public abstract class GdlScriptBase extends Script {
     public CmdDataframe from(CmdDatasource ds, String table) { return getContext().createFrom(ds, table); }
     public CmdDataframe query(CmdDatasource ds, String sql) { return getContext().createQuery(ds, sql); }
     public CmdDataframe insert(CmdDatasource ds, String targetTable, String sql) { return getContext().createInsert(ds, targetTable, sql); }
+
+    /**
+     * First executable cross-datasource path. Source SQL is pushed down to
+     * each provider and rows are joined through an in-memory exchange.
+     */
+    public RowDataFrame federatedJoin(CmdDatasource leftDatasource, String leftSql, String leftKey,
+                                      CmdDatasource rightDatasource, String rightSql, String rightKey) {
+        return federatedJoin(leftDatasource, leftSql, leftKey, "left",
+                rightDatasource, rightSql, rightKey, "right", "INNER");
+    }
+
+    public RowDataFrame federatedJoin(CmdDatasource leftDatasource, String leftSql, String leftKey, String leftAlias,
+                                      CmdDatasource rightDatasource, String rightSql, String rightKey, String rightAlias,
+                                      String joinType) {
+        FederatedJoinRequest.JoinType type = FederatedJoinRequest.JoinType.valueOf(
+                joinType == null ? "INNER" : joinType.trim().toUpperCase());
+        FederatedJoinRequest request = new FederatedJoinRequest(
+                leftDatasource, leftSql, leftKey, leftAlias,
+                rightDatasource, rightSql, rightKey, rightAlias, type);
+        return getContext().executeFederatedJoin(request).rows();
+    }
 
     // Realtime & Signal operators
     public CmdDataframe periodReactor(String cronExpr) { return getContext().createPeriodReactor(cronExpr); }
