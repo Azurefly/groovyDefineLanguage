@@ -81,5 +81,30 @@ public class GdlCompilerTest {
         assertThat(result.getContext().getExecutionPlans()).hasSize(1);
         assertThat(result.getContext().getExecutionPlans().get(0).mode())
                 .isEqualTo(ExecutionPlan.Mode.PROVIDER_PUSHDOWN);
+        assertThat(result.getContext().getDagGraph().getNodes().iterator().next().getProperties())
+                .containsEntry("datasourceType", "H2")
+                .containsEntry("executionMode", "PROVIDER_PUSHDOWN");
+    }
+
+    @Test
+    public void testFederatedJoinDslExecutesAcrossH2AndSqlite() {
+        GdlCompiler compiler = new GdlCompiler();
+        String script = """
+            def h2ds = datasource("H2", [url: "jdbc:h2:mem:federated_dsl;DB_CLOSE_DELAY=-1"])
+            def sqliteDs = datasource("SQLITE", [path: ":memory:"])
+            return federatedJoin(
+                h2ds, "SELECT 1 AS id, 'alice' AS name UNION ALL SELECT 2 AS id, 'bob' AS name", "id", "person",
+                sqliteDs, "SELECT 1 AS id, 'risk' AS department", "id", "dept", "INNER"
+            )
+        """;
+
+        GdlCompiler.GdlExecutionResult result = compiler.execute(script, Map.of());
+        assertThat(result.getScriptResult()).isInstanceOf(RowDataFrame.class);
+        RowDataFrame rows = (RowDataFrame) result.getScriptResult();
+        assertThat(rows.rowSize()).isEqualTo(1);
+        assertThat((Object) rows.getRow(0).getValue("person.name")).isEqualTo("alice");
+        assertThat((Object) rows.getRow(0).getValue("dept.department")).isEqualTo("risk");
+        assertThat(result.getContext().getFederatedJoinResults()).hasSize(1);
+        assertThat(result.getContext().getExecutionPlans()).hasSize(2);
     }
 }

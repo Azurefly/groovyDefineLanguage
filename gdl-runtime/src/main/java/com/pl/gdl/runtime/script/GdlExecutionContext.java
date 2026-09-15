@@ -16,6 +16,9 @@ import com.pl.gdl.dataframe.operator.realtime.PeriodReactorOperator;
 import com.pl.gdl.dataframe.operator.realtime.TaskReactorOperator;
 import com.pl.gdl.runtime.dag.DagGraph;
 import com.pl.gdl.runtime.dag.DagNode;
+import com.pl.gdl.runtime.federation.FederatedJoinExecutor;
+import com.pl.gdl.runtime.federation.FederatedJoinRequest;
+import com.pl.gdl.runtime.federation.FederatedJoinResult;
 import com.pl.gdl.runtime.plan.DatasourceExecutionPlanner;
 import com.pl.gdl.runtime.plan.ExecutionIntent;
 import com.pl.gdl.runtime.plan.ExecutionPlan;
@@ -31,6 +34,7 @@ public class GdlExecutionContext {
     private DatasourceRegistry datasourceRegistry;
     private DatasourceExecutionPlanner executionPlanner;
     private final List<ExecutionPlan> executionPlans = new ArrayList<>();
+    private final List<FederatedJoinResult> federatedJoinResults = new ArrayList<>();
     private final DagGraph dagGraph = new DagGraph();
     private final Map<String, Object> scriptParameters = new LinkedHashMap<>();
     private final Set<String> registeredTempTables = new LinkedHashSet<>();
@@ -59,6 +63,7 @@ public class GdlExecutionContext {
         this.executionPlanner = executionPlanner != null ? executionPlanner : new DatasourceExecutionPlanner();
     }
     public List<ExecutionPlan> getExecutionPlans() { return Collections.unmodifiableList(executionPlans); }
+    public List<FederatedJoinResult> getFederatedJoinResults() { return Collections.unmodifiableList(federatedJoinResults); }
     public DagGraph getDagGraph() { return dagGraph; }
     public Map<String, Object> getScriptParameters() { return scriptParameters; }
 
@@ -78,8 +83,9 @@ public class GdlExecutionContext {
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
-        dagGraph.addNode(new DagNode(nodeId, "from " + table, "FromOperator", "table"));
-        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.READ));
+        ExecutionPlan plan = plan(ds, ExecutionIntent.READ);
+        dagGraph.addNode(datasourceNode(nodeId, "from " + table, "FromOperator", "table", ds, plan));
+        return new CmdDataframeImpl(op, plan.engine());
     }
 
     public CmdDataframe createQuery(CmdDatasource ds, String sql) {
@@ -87,23 +93,53 @@ public class GdlExecutionContext {
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
-        dagGraph.addNode(new DagNode(nodeId, "query", "QueryOperator", "query"));
-        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.SQL_READ));
+        ExecutionPlan plan = plan(ds, ExecutionIntent.SQL_READ);
+        dagGraph.addNode(datasourceNode(nodeId, "query", "QueryOperator", "query", ds, plan));
+        return new CmdDataframeImpl(op, plan.engine());
     }
 
     public CmdDataframe createInsert(CmdDatasource ds, String targetTable, String sql) {
         InsertOperator op = new InsertOperator(ds, targetTable, sql);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
-        dagGraph.addNode(new DagNode(nodeId, "insert " + targetTable, "InsertOperator", "insert"));
-        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.SQL_WRITE));
+        ExecutionPlan plan = plan(ds, ExecutionIntent.SQL_WRITE);
+        dagGraph.addNode(datasourceNode(nodeId, "insert " + targetTable, "InsertOperator", "insert", ds, plan));
+        return new CmdDataframeImpl(op, plan.engine());
     }
 
-    private ExecutionEngine planEngine(CmdDatasource datasource, ExecutionIntent intent) {
-        if (datasourceRegistry == null || executionPlanner == null) return executionEngine;
+    public FederatedJoinResult executeFederatedJoin(FederatedJoinRequest request) {
+        FederatedJoinExecutor executor = new FederatedJoinExecutor(datasourceRegistry, executionPlanner, executionEngine);
+        FederatedJoinResult result = executor.execute(request);
+        executionPlans.addAll(result.sourcePlans());
+        federatedJoinResults.add(result);
+        return result;
+    }
+
+    private ExecutionPlan plan(CmdDatasource datasource, ExecutionIntent intent) {
+        if (datasourceRegistry == null || executionPlanner == null) {
+            String type = datasource == null ? "LOCAL_ENGINE" : datasource.getDatasourceType();
+            return new ExecutionPlan(ExecutionPlan.Mode.FALLBACK, intent, type, executionEngine,
+                    "planner unavailable; using context execution engine");
+        }
         ExecutionPlan plan = executionPlanner.plan(datasource, intent, datasourceRegistry, executionEngine);
         executionPlans.add(plan);
-        return plan.engine();
+        return plan;
+    }
+
+    private DagNode datasourceNode(String id, String label, String operator, String type,
+                                   CmdDatasource datasource, ExecutionPlan plan) {
+        DagNode node = new DagNode(id, label, operator, type);
+        if (datasource != null) {
+            node.setAreaCode(datasource.getAreaCode());
+            node.setProperty("datasourceType", datasource.getDatasourceType());
+            node.setProperty("datasourceName", datasource.getDsConfName());
+        }
+        if (plan != null) {
+            node.setProperty("executionMode", plan.mode().name());
+            node.setProperty("executionIntent", plan.intent().name());
+            node.setProperty("executionReason", plan.reason());
+        }
+        return node;
     }
 
     public CmdDataframe createPeriodReactor(String cronExpr) {

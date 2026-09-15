@@ -17,6 +17,15 @@ public interface DatasourceProvider {
 
     CmdDatasource create(Map<String, Object> config);
 
+    /**
+     * Context-aware creation hook for plugins that need secret resolution.
+     * Existing providers remain source/binary compatible through the default
+     * delegation to create(config).
+     */
+    default CmdDatasource create(Map<String, Object> config, SecretResolver secretResolver) {
+        return create(config);
+    }
+
     /** Provider contract version, independent from the database product version. */
     default String getVersion() {
         return "1.0";
