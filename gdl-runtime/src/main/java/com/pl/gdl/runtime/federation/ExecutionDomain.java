@@ -8,7 +8,7 @@ import java.util.Objects;
 
 /**
  * Physical execution domain for one DAG fragment. A boundary exists when
- * either the area code or datasource identity changes.
+ * either the area code or physical datasource identity changes.
  */
 public record ExecutionDomain(
         String areaCode,
@@ -19,13 +19,14 @@ public record ExecutionDomain(
     public ExecutionDomain {
         areaCode = normalize(areaCode, "local");
         datasourceType = normalize(datasourceType, "LOCAL_ENGINE");
-        datasourceName = normalize(datasourceName, "default");
+        datasourceName = normalizeIdentity(datasourceName, "default");
     }
 
     public static ExecutionDomain fromNode(DagNode node) {
         Objects.requireNonNull(node, "node must not be null");
         Object type = node.getProperties().get("datasourceType");
-        Object name = node.getProperties().get("datasourceName");
+        Object identity = node.getProperties().get("datasourceIdentity");
+        Object name = identity != null ? identity : node.getProperties().get("datasourceName");
         return new ExecutionDomain(
                 node.getAreaCode(),
                 type == null ? null : String.valueOf(type),
@@ -39,5 +40,9 @@ public record ExecutionDomain(
     private static String normalize(String value, String fallback) {
         String effective = value == null || value.isBlank() ? fallback : value.trim();
         return effective.toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeIdentity(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }
