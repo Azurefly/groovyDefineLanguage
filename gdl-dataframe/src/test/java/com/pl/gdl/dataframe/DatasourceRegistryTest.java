@@ -74,6 +74,37 @@ public class DatasourceRegistryTest {
     }
 
     @Test
+    public void jdbcEngineExecutesMultipleStatementsAndPreservesQuotedSemicolons() {
+        H2Datasource datasource = new H2Datasource("jdbc:h2:mem:multistmt;DB_CLOSE_DELAY=-1", "sa", "");
+        ExecutionEngine engine = DatasourceRegistry.getDefault().createExecutionEngine(datasource);
+        RowDataFrame result = engine.execute(new QueryOperator(datasource,
+                "CREATE TABLE sample(id INT PRIMARY KEY, note VARCHAR(50)); " +
+                "INSERT INTO sample VALUES (1, 'left;right'); " +
+                "SELECT id, note FROM sample"));
+
+        assertThat(result.rowSize()).isEqualTo(1);
+        assertThat((String) result.getRow(0).getValue("note")).isEqualTo("left;right");
+    }
+
+    @Test
+    public void jdbcEngineRollsBackEarlierStatementsWhenLaterStatementFails() {
+        H2Datasource datasource = new H2Datasource("jdbc:h2:mem:rollbacktest;DB_CLOSE_DELAY=-1", "sa", "");
+        ExecutionEngine engine = DatasourceRegistry.getDefault().createExecutionEngine(datasource);
+        engine.execute(new QueryOperator(datasource,
+                "CREATE TABLE rollback_sample(id INT PRIMARY KEY, note VARCHAR(50)); " +
+                "INSERT INTO rollback_sample VALUES (1, 'base')"));
+
+        assertThatThrownBy(() -> engine.execute(new QueryOperator(datasource,
+                "INSERT INTO rollback_sample VALUES (2, 'temporary'); " +
+                "INSERT INTO rollback_sample VALUES (1, 'duplicate')")))
+                .isRuntimeException();
+
+        RowDataFrame result = engine.execute(new QueryOperator(datasource,
+                "SELECT COUNT(*) AS total FROM rollback_sample"));
+        assertThat(((Number) result.getRow(0).getValue("total")).intValue()).isEqualTo(1);
+    }
+
+    @Test
     public void sqliteProviderExecutesRealJdbcQuery() {
         SqliteDatasource datasource = new SqliteDatasource(":memory:");
         ExecutionEngine engine = DatasourceRegistry.getDefault().createExecutionEngine(datasource);
