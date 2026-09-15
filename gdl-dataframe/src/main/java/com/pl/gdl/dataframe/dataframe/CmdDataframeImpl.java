@@ -2,7 +2,10 @@ package com.pl.gdl.dataframe.dataframe;
 
 import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.dataframe.datasource.CmdDatasource;
+import com.pl.gdl.dataframe.datasource.DatasourceIdentity;
+import com.pl.gdl.dataframe.engine.AutomaticFederatedJoinEngine;
 import com.pl.gdl.dataframe.engine.ExecutionEngine;
+import com.pl.gdl.dataframe.federation.OperatorDatasourceResolver;
 import com.pl.gdl.dataframe.operator.LogicalOperator;
 import com.pl.gdl.dataframe.operator.advanced.HttpOperator;
 import com.pl.gdl.dataframe.operator.advanced.LlmCallOperator;
@@ -188,22 +191,45 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     @Override
     public CmdDataframe join(CmdDataframe other, String onCondition) {
-        return new CmdDataframeImpl(new JoinOperator(operator, other.getOperator(), JoinOperator.JoinType.INNER, onCondition), executionEngine);
+        return createJoin(other, JoinOperator.JoinType.INNER, onCondition);
     }
 
     @Override
     public CmdDataframe leftJoin(CmdDataframe other, String onCondition) {
-        return new CmdDataframeImpl(new JoinOperator(operator, other.getOperator(), JoinOperator.JoinType.LEFT, onCondition), executionEngine);
+        return createJoin(other, JoinOperator.JoinType.LEFT, onCondition);
     }
 
     @Override
     public CmdDataframe rightJoin(CmdDataframe other, String onCondition) {
-        return new CmdDataframeImpl(new JoinOperator(operator, other.getOperator(), JoinOperator.JoinType.RIGHT, onCondition), executionEngine);
+        return createJoin(other, JoinOperator.JoinType.RIGHT, onCondition);
     }
 
     @Override
     public CmdDataframe fullJoin(CmdDataframe other, String onCondition) {
-        return new CmdDataframeImpl(new JoinOperator(operator, other.getOperator(), JoinOperator.JoinType.FULL, onCondition), executionEngine);
+        return createJoin(other, JoinOperator.JoinType.FULL, onCondition);
+    }
+
+    private CmdDataframe createJoin(CmdDataframe other, JoinOperator.JoinType joinType, String onCondition) {
+        Objects.requireNonNull(other, "other dataframe must not be null");
+        JoinOperator join = new JoinOperator(operator, other.getOperator(), joinType, onCondition);
+        ExecutionEngine selectedEngine = executionEngine;
+
+        if (other instanceof CmdDataframeImpl otherImpl && executionEngine != null && otherImpl.executionEngine != null) {
+            Optional<CmdDatasource> leftDatasource = OperatorDatasourceResolver.resolveSingle(operator);
+            Optional<CmdDatasource> rightDatasource = OperatorDatasourceResolver.resolveSingle(other.getOperator());
+            if (leftDatasource.isPresent() && rightDatasource.isPresent()) {
+                DatasourceIdentity leftIdentity = DatasourceIdentity.from(leftDatasource.get());
+                DatasourceIdentity rightIdentity = DatasourceIdentity.from(rightDatasource.get());
+                if (!leftIdentity.equals(rightIdentity)) {
+                    selectedEngine = new AutomaticFederatedJoinEngine(
+                            executionEngine,
+                            otherImpl.executionEngine,
+                            leftDatasource.get(),
+                            rightDatasource.get());
+                }
+            }
+        }
+        return new CmdDataframeImpl(join, selectedEngine);
     }
 
     @Override
