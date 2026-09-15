@@ -13,7 +13,7 @@ GDL（GroovyDefine Language）是基于 Groovy 语法的领域特定模型语言
 gdl-parent (pom.xml)
 ├── gdl-common        // 通用模型
 ├── gdl-dataframe     // DataFrame、算子、数据源 SPI、SQL 方言与执行引擎
-├── gdl-runtime       // Groovy DSL 编译执行、变量与 DAG
+├── gdl-runtime       // Groovy DSL、能力规划、变量与 DAG
 ├── gdl-ontology      // 业务本体
 ├── gdl-drift         // 跨节点漂移计算
 └── gdl-server        // TreClient SDK 与 MCP 工具
@@ -26,37 +26,43 @@ GDL DSL
   │ datasource(type, config) / hive() / postgres() / mysql() / sqlite() / h2()
   ▼
 DatasourceRegistry
-  ├── DatasourceProvider SPI
+  ├── DatasourceProvider SDK
+  ├── provider descriptor / config validation
   ├── capability discovery
   ├── health / metadata discovery
   ├── SecretResolver
   └── ServiceLoader / runtime register
   ▼
-CmdDatasource
+Capability-aware Planner
+  ├── READ
+  ├── SQL_READ
+  └── SQL_WRITE
+  │
+  ├── provider pushdown
+  └── compatible fallback execution path
+  ▼
+CmdDatasource / ExecutionEngine
   ├── JdbcDatasource ── PostgreSQL / MySQL / SQLite / H2
   ├── HiveDatasource
-  └── LlmDatasource
-  ▼
-ExecutionEngine
+  ├── LlmDatasource
   ├── JdbcExecutionEngine + SqlDialect + HikariCP
-  ├── InMemoryEngine
-  └── existing non-JDBC execution paths
+  └── InMemory / existing non-JDBC execution paths
 ```
 
 ---
 
 ## 多数据源支持矩阵
 
-| 类型 | DSL / Registry | SQL 方言 | JDBC 实际查询 | 连接池 | 元数据/健康 | 读/写能力 | 说明 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| H2 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 本地开发、单测、嵌入式场景 |
-| SQLite | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 文件或 `:memory:` 数据库 |
-| PostgreSQL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | JDBC Driver 随模块运行时依赖提供 |
-| MySQL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | JDBC Driver 随模块运行时依赖提供 |
-| Hive | ✅ | ✅ | 当前沿用 SQL 规划/下推能力 | — | 待专用实现 | ✅ | 保持原有 Hive DSL 兼容，不伪装成 JDBC |
-| LLM | ✅ | N/A | N/A | — | 待专用实现 | 专用 | 非关系型远程能力，沿用 LLM 算子体系 |
+| 类型 | DSL / Registry | SQL 方言 | JDBC 实际查询 | 连接池 | 元数据/健康 | Planner | 读/写能力 | 说明 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| H2 | ✅ | ✅ | ✅ | ✅ | ✅ | Provider Pushdown | ✅ | 本地开发、单测、嵌入式场景 |
+| SQLite | ✅ | ✅ | ✅ | ✅ | ✅ | Provider Pushdown | ✅ | 文件或 `:memory:` 数据库 |
+| PostgreSQL | ✅ | ✅ | ✅ | ✅ | ✅ | Provider Pushdown | ✅ | JDBC Driver 随模块运行时依赖提供 |
+| MySQL | ✅ | ✅ | ✅ | ✅ | ✅ | Provider Pushdown | ✅ | JDBC Driver 随模块运行时依赖提供 |
+| Hive | ✅ | ✅ | 当前沿用 SQL 规划/下推能力 | — | 待专用实现 | Compatible Fallback | ✅ | 保持原有 Hive DSL 兼容，不伪装成 JDBC |
+| LLM | ✅ | N/A | N/A | — | 待专用实现 | 专用路径 | 专用 | 非关系型远程能力，沿用 LLM 算子体系 |
 
-> “多数据源”当前表示：同一 GDL 工具中可以注册、配置并独立执行不同物理数据源；**尚不宣称单条 SQL 自动完成跨 PostgreSQL/MySQL/SQLite 的联邦 Join**。跨地域/跨执行域仍由现有 Drift/Federated 层承担，后续可在 capability-aware planner 上继续扩展。
+> “多数据源”当前表示：同一 GDL 工具中可以注册、配置并独立执行不同物理数据源；**尚不宣称单条 SQL 自动完成跨 PostgreSQL/MySQL/SQLite 的联邦 Join**。能力规划已经完成，但跨源 Join 仍需下一阶段的子图切分、数据交换和合并执行层。
 
 ---
 
@@ -96,7 +102,35 @@ def df = query(memory, "SELECT 42 AS answer")
 returnDf(df)
 ```
 
-`GdlExecutionContext` 会根据 `CmdDatasource#getDatasourceType()` 从 `DatasourceRegistry` 查找 Provider，并选择对应执行引擎。JDBC 数据源统一使用 `JdbcExecutionEngine`，SQL 生成仍由各自 `SqlDialect` 负责。
+`GdlExecutionContext` 不再直接按数据源类型选择引擎，而是把 `from/query/insert` 转换为执行意图交给 `DatasourceExecutionPlanner`。Planner 根据 Provider 声明的能力决定使用 Provider Pushdown 还是兼容的 fallback 路径。
+
+---
+
+## Capability-aware Planner
+
+当前执行意图：
+
+- `READ`：至少要求 `READ`
+- `SQL_READ`：要求 `READ + SQL`
+- `SQL_WRITE`：要求 `WRITE + SQL`
+
+例如，一个只声明 `READ + SQL` 的 Provider 可以执行查询，但在进入实际执行前就会拒绝 `insert`，不会等数据库报错后才发现能力不匹配。
+
+Planner 的结果通过 `GdlExecutionContext#getExecutionPlans()` 可观察：
+
+```java
+ExecutionPlan plan = result.getContext().getExecutionPlans().get(0);
+System.out.println(plan.mode());
+System.out.println(plan.datasourceType());
+System.out.println(plan.reason());
+```
+
+当前模式：
+
+- `PROVIDER_PUSHDOWN`：Provider 提供匹配能力的执行引擎，例如 H2 / SQLite / PostgreSQL / MySQL JDBC。
+- `FALLBACK`：Provider 能力满足，但执行仍委托现有 Runtime 路径，例如当前 Hive。
+
+这层规划是后续跨源联邦执行的前置基础：下一阶段可以继续加入 `DRIFT`、`FEDERATED_EXCHANGE` 等策略，而不需要修改 DSL 语义。
 
 ---
 
@@ -162,15 +196,27 @@ JdbcMetadataService.Snapshot metadata = DatasourceRegistry.getDefault().inspect(
 
 ---
 
-## 可扩展 Provider SPI
+## Provider SDK
 
-新增数据源不需要修改 `GdlScriptBase` 或核心 Registry。最小实现：
+新增数据源不需要修改 `GdlScriptBase` 或核心 Registry。Provider 现在拥有稳定的描述、校验、能力和执行契约：
 
 ```java
 public final class CustomProvider implements DatasourceProvider {
     @Override
     public String getType() {
         return "CUSTOM";
+    }
+
+    @Override
+    public String getVersion() {
+        return "1.0";
+    }
+
+    @Override
+    public void validateConfig(Map<String, Object> config) {
+        if (!config.containsKey("endpoint")) {
+            throw new DatasourceValidationException("endpoint is required");
+        }
     }
 
     @Override
@@ -184,6 +230,20 @@ public final class CustomProvider implements DatasourceProvider {
     }
 }
 ```
+
+Registry 会在 `create()` 前先调用 `validateConfig()`。Provider 的稳定描述可以用于插件管理界面、兼容性检查和诊断：
+
+```java
+DatasourceProviderDescriptor one = registry.describe("CUSTOM");
+List<DatasourceProviderDescriptor> all = registry.describeAll();
+```
+
+Descriptor 包含：
+
+- Provider 类型
+- Provider 契约版本
+- 能力集合
+- SQL 方言名（如有）
 
 运行时注册：
 
@@ -216,7 +276,7 @@ Provider 可通过 `DatasourceCapability` 声明：
 - `REMOTE_EXECUTION`
 - `LLM`
 
-调用方可以用 `DatasourceRegistry.capabilities(type)` 做能力判断，避免依赖 `if (type == ...)` 的硬编码分支。
+调用方既可以用 `DatasourceRegistry.capabilities(type)` 查询能力，也可以直接使用 `DatasourceProviderDescriptor`。Planner 本身只依据能力，不再依赖 `if (type == ...)` 的硬编码分支。
 
 ---
 
@@ -238,14 +298,15 @@ Provider 可通过 `DatasourceCapability` 声明：
 
 ## 工程边界与下一步扩展点
 
-当前架构已经把“增加 JDBC 数据源”降低为实现 Provider / Datasource / Dialect，并可自动复用连接池、事务执行、凭据解析、健康检查和元数据发现。下一阶段适合继续扩展：
+当前架构已经完成 Provider SDK 基础契约和 capability-aware planner。继续演进时优先顺序：
 
-1. capability-aware planner：根据能力自动决定 SQL 下推、内存执行或 Drift。
-2. 跨物理数据源联邦 Join：将不同 Provider 的子图拆分执行并通过中间表/Arrow 等交换。
-3. 元数据增强：主键、索引、分区、统计信息和 schema 过滤。
-4. Provider SDK 独立模块：固定插件兼容契约、版本协商和测试套件。
-5. 更多 Provider：Oracle、SQL Server、KingbaseES、GaussDB、Doris、ClickHouse、REST/Object Storage/Kafka 等。
-6. 连接池治理：按数据源实例命名、指标、泄漏检测、优雅关闭和运行时重载。
+1. 跨物理数据源联邦 Join：识别多 Provider DAG，按数据源切分子图并执行。
+2. 交换层：定义中间结果交换格式，优先评估 Arrow / 流式 RowDataFrame / 临时表。
+3. Drift Planner 融合：把 `areaCode` 与 Provider capability 同时纳入执行位置决策。
+4. Provider 插件工程模板：GaussDB、KingbaseES、Vastbase/海量、Doris、ClickHouse、Oracle。
+5. 元数据增强：主键、索引、分区、统计信息和 schema 过滤。
+6. 插件兼容性：Provider SDK 版本协商、插件清单、自动兼容测试套件。
+7. 连接池治理：指标、泄漏检测、优雅关闭和运行时重载。
 
 ---
 
