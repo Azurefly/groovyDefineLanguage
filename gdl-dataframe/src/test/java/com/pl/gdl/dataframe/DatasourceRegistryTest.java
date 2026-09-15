@@ -27,6 +27,45 @@ public class DatasourceRegistryTest {
     }
 
     @Test
+    public void registryExposesStableProviderDescriptors() {
+        DatasourceProviderDescriptor descriptor = DatasourceRegistry.getDefault().describe("h2");
+        assertThat(descriptor.type()).isEqualTo("H2");
+        assertThat(descriptor.version()).isEqualTo("1.0");
+        assertThat(descriptor.dialectName()).isEqualTo("H2");
+        assertThat(descriptor.capabilities()).contains(
+                DatasourceCapability.READ,
+                DatasourceCapability.WRITE,
+                DatasourceCapability.SQL,
+                DatasourceCapability.METADATA,
+                DatasourceCapability.HEALTH_CHECK);
+        assertThat(DatasourceRegistry.getDefault().describeAll())
+                .extracting(DatasourceProviderDescriptor::type)
+                .contains("H2", "HIVE", "LLM", "MYSQL", "POSTGRES", "SQLITE");
+    }
+
+    @Test
+    public void providerValidationRunsBeforeDatasourceConstruction() {
+        DatasourceRegistry registry = new DatasourceRegistry();
+        registry.register(new DatasourceProvider() {
+            @Override public String getType() { return "VALIDATED"; }
+            @Override public void validateConfig(Map<String, Object> config) {
+                if (!config.containsKey("endpoint")) {
+                    throw new DatasourceValidationException("endpoint is required");
+                }
+            }
+            @Override public CmdDatasource create(Map<String, Object> config) {
+                return new H2Datasource();
+            }
+        });
+
+        assertThatThrownBy(() -> registry.create("validated", Map.of()))
+                .isInstanceOf(DatasourceValidationException.class)
+                .hasMessageContaining("endpoint is required");
+        assertThat(registry.create("validated", Map.of("endpoint", "local")))
+                .isInstanceOf(H2Datasource.class);
+    }
+
+    @Test
     public void buildsMysqlAndSqliteConfigurations() {
         MysqlDatasource mysql = (MysqlDatasource) DatasourceRegistry.getDefault().create("mysql", Map.of(
                 "host", "db.internal", "port", 3307, "database", "demo", "username", "u", "password", "p"));
