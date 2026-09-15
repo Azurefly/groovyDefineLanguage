@@ -78,8 +78,9 @@ public class GdlExecutionContext {
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
-        dagGraph.addNode(new DagNode(nodeId, "from " + table, "FromOperator", "table"));
-        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.READ));
+        ExecutionPlan plan = plan(ds, ExecutionIntent.READ);
+        dagGraph.addNode(datasourceNode(nodeId, "from " + table, "FromOperator", "table", ds, plan));
+        return new CmdDataframeImpl(op, plan.engine());
     }
 
     public CmdDataframe createQuery(CmdDatasource ds, String sql) {
@@ -87,23 +88,45 @@ public class GdlExecutionContext {
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
-        dagGraph.addNode(new DagNode(nodeId, "query", "QueryOperator", "query"));
-        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.SQL_READ));
+        ExecutionPlan plan = plan(ds, ExecutionIntent.SQL_READ);
+        dagGraph.addNode(datasourceNode(nodeId, "query", "QueryOperator", "query", ds, plan));
+        return new CmdDataframeImpl(op, plan.engine());
     }
 
     public CmdDataframe createInsert(CmdDatasource ds, String targetTable, String sql) {
         InsertOperator op = new InsertOperator(ds, targetTable, sql);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
-        dagGraph.addNode(new DagNode(nodeId, "insert " + targetTable, "InsertOperator", "insert"));
-        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.SQL_WRITE));
+        ExecutionPlan plan = plan(ds, ExecutionIntent.SQL_WRITE);
+        dagGraph.addNode(datasourceNode(nodeId, "insert " + targetTable, "InsertOperator", "insert", ds, plan));
+        return new CmdDataframeImpl(op, plan.engine());
     }
 
-    private ExecutionEngine planEngine(CmdDatasource datasource, ExecutionIntent intent) {
-        if (datasourceRegistry == null || executionPlanner == null) return executionEngine;
+    private ExecutionPlan plan(CmdDatasource datasource, ExecutionIntent intent) {
+        if (datasourceRegistry == null || executionPlanner == null) {
+            String type = datasource == null ? "LOCAL_ENGINE" : datasource.getDatasourceType();
+            return new ExecutionPlan(ExecutionPlan.Mode.FALLBACK, intent, type, executionEngine,
+                    "planner unavailable; using context execution engine");
+        }
         ExecutionPlan plan = executionPlanner.plan(datasource, intent, datasourceRegistry, executionEngine);
         executionPlans.add(plan);
-        return plan.engine();
+        return plan;
+    }
+
+    private DagNode datasourceNode(String id, String label, String operator, String type,
+                                   CmdDatasource datasource, ExecutionPlan plan) {
+        DagNode node = new DagNode(id, label, operator, type);
+        if (datasource != null) {
+            node.setAreaCode(datasource.getAreaCode());
+            node.setProperty("datasourceType", datasource.getDatasourceType());
+            node.setProperty("datasourceName", datasource.getDsConfName());
+        }
+        if (plan != null) {
+            node.setProperty("executionMode", plan.mode().name());
+            node.setProperty("executionIntent", plan.intent().name());
+            node.setProperty("executionReason", plan.reason());
+        }
+        return node;
     }
 
     public CmdDataframe createPeriodReactor(String cronExpr) {
