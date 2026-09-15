@@ -4,6 +4,7 @@ import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.dataframe.dataframe.CmdDataframe;
 import com.pl.gdl.dataframe.dataframe.CmdDataframeImpl;
 import com.pl.gdl.dataframe.datasource.CmdDatasource;
+import com.pl.gdl.dataframe.datasource.DatasourceIdentity;
 import com.pl.gdl.dataframe.datasource.DatasourceRegistry;
 import com.pl.gdl.dataframe.engine.ExecutionEngine;
 import com.pl.gdl.dataframe.engine.InMemoryEngine;
@@ -130,9 +131,11 @@ public class GdlExecutionContext {
                                    CmdDatasource datasource, ExecutionPlan plan) {
         DagNode node = new DagNode(id, label, operator, type);
         if (datasource != null) {
+            DatasourceIdentity identity = DatasourceIdentity.from(datasource);
             node.setAreaCode(datasource.getAreaCode());
             node.setProperty("datasourceType", datasource.getDatasourceType());
             node.setProperty("datasourceName", datasource.getDsConfName());
+            node.setProperty("datasourceIdentity", identity.instanceKey());
         }
         if (plan != null) {
             node.setProperty("executionMode", plan.mode().name());
