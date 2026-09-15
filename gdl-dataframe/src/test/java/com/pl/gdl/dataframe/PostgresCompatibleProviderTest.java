@@ -27,7 +27,7 @@ public class PostgresCompatibleProviderTest {
                 "parameters", Map.of("ssl", "true")));
 
         assertThat(datasource.getJdbcUrl()).isEqualTo("jdbc:gaussdb://gauss.internal:8000/app?ssl=true");
-        assertThat(datasource.getDriverClassName()).isEqualTo("com.huawei.gauss200.jdbc.Driver");
+        assertThat(datasource.getDriverClassName()).isEqualTo("com.vendor.gauss.Driver");
         assertThat(datasource.getPassword()).isEqualTo("secret-value");
         assertThat(registry.describe("GAUSSDB_TEMPLATE").dialectName()).isEqualTo("POSTGRES");
     }
@@ -43,7 +43,7 @@ public class PostgresCompatibleProviderTest {
     private static final class DemoGaussProvider extends AbstractPostgresCompatibleProvider {
         @Override public String getType() { return "GAUSSDB_TEMPLATE"; }
         @Override protected String jdbcSubprotocol() { return "gaussdb"; }
-        @Override protected String driverClassName() { return "com.huawei.gauss200.jdbc.Driver"; }
+        @Override protected String driverClassName() { return "com.vendor.gauss.Driver"; }
         @Override protected int defaultPort() { return 8000; }
     }
 }
