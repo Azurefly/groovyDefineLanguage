@@ -102,8 +102,8 @@ public class GdlCompilerTest {
         assertThat(result.getScriptResult()).isInstanceOf(RowDataFrame.class);
         RowDataFrame rows = (RowDataFrame) result.getScriptResult();
         assertThat(rows.rowSize()).isEqualTo(1);
-        assertThat(rows.getRow(0).getValue("person.name")).isEqualTo("alice");
-        assertThat(rows.getRow(0).getValue("dept.department")).isEqualTo("risk");
+        assertThat((Object) rows.getRow(0).getValue("person.name")).isEqualTo("alice");
+        assertThat((Object) rows.getRow(0).getValue("dept.department")).isEqualTo("risk");
         assertThat(result.getContext().getFederatedJoinResults()).hasSize(1);
         assertThat(result.getContext().getExecutionPlans()).hasSize(2);
     }
