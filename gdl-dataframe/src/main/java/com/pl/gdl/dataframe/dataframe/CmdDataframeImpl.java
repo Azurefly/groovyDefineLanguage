@@ -35,6 +35,7 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     public void setExecutionEngine(ExecutionEngine executionEngine) {
         this.executionEngine = executionEngine;
+        this.cachedData = null;
     }
 
     public ExecutionEngine getExecutionEngine() {
