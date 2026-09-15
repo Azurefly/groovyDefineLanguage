@@ -74,7 +74,7 @@ public abstract class AbstractPostgresCompatibleProvider implements DatasourcePr
     private static void required(Map<String, Object> config, String key) {
         Object value = config.get(key);
         if (value == null || String.valueOf(value).isBlank()) {
-            throw new DatasourceConfigException("Missing required configuration '" + key + "'");
+            throw new DatasourceValidationException("Missing required configuration '" + key + "'");
         }
     }
 
