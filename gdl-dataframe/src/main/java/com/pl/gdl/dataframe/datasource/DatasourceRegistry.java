@@ -57,7 +57,7 @@ public class DatasourceRegistry {
         DatasourceProvider provider = require(type);
         Map<String, Object> normalizedConfig = config == null ? Map.of() : Map.copyOf(config);
         provider.validateConfig(normalizedConfig);
-        return provider.create(normalizedConfig);
+        return provider.create(normalizedConfig, secretResolver);
     }
 
     public DatasourceProviderDescriptor describe(String type) {
