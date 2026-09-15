@@ -14,6 +14,7 @@ public record ExchangeBoundary(
 ) implements Serializable {
     public enum MaterializationMode {
         MEMORY,
+        STREAMING,
         INTERMEDIATE_TABLE,
         REMOTE_DRIFT
     }
