@@ -4,9 +4,11 @@ import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.dataframe.datasource.*;
 import com.pl.gdl.dataframe.dialect.H2SqlDialect;
 import com.pl.gdl.dataframe.engine.ExecutionEngine;
+import com.pl.gdl.dataframe.engine.JdbcConnectionManager;
 import com.pl.gdl.dataframe.operator.base.QueryOperator;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
 import java.util.EnumSet;
 import java.util.Map;
 
@@ -32,6 +34,20 @@ public class DatasourceRegistryTest {
 
         SqliteDatasource sqlite = (SqliteDatasource) DatasourceRegistry.getDefault().create("sqlite", Map.of("path", "data/app.db"));
         assertThat(sqlite.getJdbcUrl()).isEqualTo("jdbc:sqlite:data/app.db");
+    }
+
+    @Test
+    public void resolvesPasswordReferenceWithoutPlaintextCredential() {
+        DatasourceRegistry registry = DatasourceRegistry.getDefault();
+        try {
+            registry.setSecretResolver(SecretResolver.fixed(Map.of("vault:demo/mysql", "resolved-password")));
+            MysqlDatasource mysql = (MysqlDatasource) registry.create("mysql", Map.of(
+                    "host", "db.internal", "database", "demo", "username", "u",
+                    "passwordRef", "vault:demo/mysql"));
+            assertThat(mysql.getPassword()).isEqualTo("resolved-password");
+        } finally {
+            registry.setSecretResolver(SecretResolver.system());
+        }
     }
 
     @Test
@@ -63,6 +79,20 @@ public class DatasourceRegistryTest {
     }
 
     @Test
+    public void pooledConnectionManagerReusesDatasourcePool() throws Exception {
+        H2Datasource datasource = new H2Datasource("jdbc:h2:mem:pooltest;DB_CLOSE_DELAY=-1", "sa", "");
+        try (JdbcConnectionManager manager = new JdbcConnectionManager()) {
+            try (Connection first = manager.getConnection(datasource)) {
+                assertThat(first.isValid(1)).isTrue();
+            }
+            try (Connection second = manager.getConnection(datasource)) {
+                assertThat(second.isValid(1)).isTrue();
+            }
+            assertThat(manager.poolCount()).isEqualTo(1);
+        }
+    }
+
+    @Test
     public void h2ProviderExecutesRealJdbcQuery() {
         H2Datasource datasource = new H2Datasource("jdbc:h2:mem:querytest;DB_CLOSE_DELAY=-1", "sa", "");
         ExecutionEngine engine = DatasourceRegistry.getDefault().createExecutionEngine(datasource);
@@ -71,6 +101,26 @@ public class DatasourceRegistryTest {
         assertThat(result.rowSize()).isEqualTo(1);
         assertThat((Integer) result.getRow(0).getValue("id")).isEqualTo(7);
         assertThat((String) result.getRow(0).getValue("name")).isEqualTo("gdl");
+    }
+
+    @Test
+    public void healthAndMetadataDiscoveryUseRealJdbcMetadata() {
+        H2Datasource datasource = new H2Datasource("jdbc:h2:mem:metatest;DB_CLOSE_DELAY=-1", "sa", "");
+        ExecutionEngine engine = DatasourceRegistry.getDefault().createExecutionEngine(datasource);
+        engine.execute(new QueryOperator(datasource,
+                "CREATE TABLE metadata_sample(id INT PRIMARY KEY, note VARCHAR(50))"));
+
+        DatasourceHealth health = DatasourceRegistry.getDefault().health(datasource);
+        assertThat(health.healthy()).isTrue();
+        assertThat(health.productName()).containsIgnoringCase("H2");
+
+        JdbcMetadataService.Snapshot snapshot = DatasourceRegistry.getDefault().inspect(datasource);
+        JdbcMetadataService.TableInfo table = snapshot.tables().stream()
+                .filter(item -> item.name().equalsIgnoreCase("metadata_sample"))
+                .findFirst().orElseThrow();
+        assertThat(table.columns()).extracting(JdbcMetadataService.ColumnInfo::name)
+                .anyMatch(name -> name.equalsIgnoreCase("id"))
+                .anyMatch(name -> name.equalsIgnoreCase("note"));
     }
 
     @Test
@@ -113,6 +163,13 @@ public class DatasourceRegistryTest {
         assertThat(result.rowSize()).isEqualTo(1);
         assertThat(((Number) result.getRow(0).getValue("id")).intValue()).isEqualTo(9);
         assertThat((String) result.getRow(0).getValue("source_name")).isEqualTo("sqlite");
+    }
+
+    @Test
+    public void nonJdbcHealthReportsUnsupportedInsteadOfPretendingHealthy() {
+        DatasourceHealth health = DatasourceRegistry.getDefault().health(new HiveDatasource());
+        assertThat(health.healthy()).isFalse();
+        assertThat(health.message()).contains("not implemented");
     }
 
     @Test

@@ -10,6 +10,8 @@ public enum DatasourceCapability {
     SQL,
     JDBC,
     TRANSACTION,
+    METADATA,
+    HEALTH_CHECK,
     PARTITIONED_WRITE,
     REMOTE_EXECUTION,
     LLM

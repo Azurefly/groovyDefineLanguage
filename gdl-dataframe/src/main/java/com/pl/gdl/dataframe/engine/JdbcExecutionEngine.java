@@ -13,13 +13,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Executes generated/passthrough SQL against any JdbcDatasource. */
+/** Executes generated/passthrough SQL against any JdbcDatasource using pooled connections. */
 public class JdbcExecutionEngine extends SqlPushdownEngine {
     private final JdbcDatasource datasource;
+    private final JdbcConnectionManager connectionManager;
 
     public JdbcExecutionEngine(JdbcDatasource datasource, SqlDialect dialect) {
+        this(datasource, dialect, JdbcConnectionManager.getDefault());
+    }
+
+    public JdbcExecutionEngine(JdbcDatasource datasource, SqlDialect dialect, JdbcConnectionManager connectionManager) {
         super(Objects.requireNonNull(dialect, "dialect must not be null"));
         this.datasource = Objects.requireNonNull(datasource, "datasource must not be null");
+        this.connectionManager = Objects.requireNonNull(connectionManager, "connectionManager must not be null");
     }
 
     public JdbcDatasource getDatasource() {
@@ -30,15 +36,13 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
     public RowDataFrame execute(LogicalOperator operator) {
         String sql = toSql(operator);
         if (sql == null || sql.isBlank()) return new RowDataFrame();
-        loadDriver();
 
-        try (Connection connection = openConnection()) {
+        try (Connection connection = connectionManager.getConnection(datasource)) {
             boolean originalAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try {
                 RowDataFrame result = executeStatements(connection, splitStatements(sql));
                 connection.commit();
-                connection.setAutoCommit(originalAutoCommit);
                 return result;
             } catch (SQLException | RuntimeException e) {
                 try {
@@ -47,6 +51,12 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
                     e.addSuppressed(rollbackError);
                 }
                 throw e;
+            } finally {
+                try {
+                    connection.setAutoCommit(originalAutoCommit);
+                } catch (SQLException ignored) {
+                    // Connection close/eviction will handle a broken connection.
+                }
             }
         } catch (SQLException e) {
             throw new GdlExecutionException("JDBC execution failed for " + getDialect().getDialectName()
@@ -117,23 +127,6 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
         String value = current.toString().trim();
         if (!value.isEmpty()) statements.add(value);
         current.setLength(0);
-    }
-
-    private Connection openConnection() throws SQLException {
-        String username = datasource.getUsername();
-        if (username == null) return DriverManager.getConnection(datasource.getJdbcUrl());
-        return DriverManager.getConnection(datasource.getJdbcUrl(), username,
-                datasource.getPassword() == null ? "" : datasource.getPassword());
-    }
-
-    private void loadDriver() {
-        String driver = datasource.getDriverClassName();
-        if (driver == null || driver.isBlank()) return;
-        try {
-            Class.forName(driver);
-        } catch (ClassNotFoundException e) {
-            throw new GdlExecutionException("JDBC driver not found: " + driver, e);
-        }
     }
 
     private RowDataFrame read(ResultSet rs) throws SQLException {
