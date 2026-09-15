@@ -24,14 +24,20 @@ public class InMemoryEngine implements ExecutionEngine {
     }
 
     public void registerTable(String tableName, RowDataFrame df) {
-        inMemoryTables.put(tableName.toLowerCase(), df);
-        createAndPopulateH2Table(tableName, df);
+        if (tableName == null || tableName.isBlank()) {
+            throw new IllegalArgumentException("tableName must not be blank");
+        }
+        Objects.requireNonNull(df, "df must not be null");
+
+        String normalizedTableName = tableName.trim();
+        createAndPopulateH2Table(normalizedTableName, df);
+        inMemoryTables.put(normalizedTableName.toLowerCase(Locale.ROOT), df);
     }
 
     private void createAndPopulateH2Table(String tableName, RowDataFrame df) {
-        if (df == null || df.getColumns().isEmpty()) return;
+        if (df.getColumns().isEmpty()) return;
         try (Connection conn = dataSource.getConnection()) {
-            StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (");
+            StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (");
             for (int i = 0; i < df.getColumns().size(); i++) {
                 if (i > 0) sb.append(", ");
                 ColumnInfo col = df.getColumns().get(i);
@@ -39,6 +45,9 @@ public class InMemoryEngine implements ExecutionEngine {
             }
             sb.append(")");
             try (Statement stmt = conn.createStatement()) {
+                // registerTable has replacement semantics: keep the direct in-memory view
+                // and the SQL-backed view consistent, including when the schema changes.
+                stmt.execute("DROP TABLE IF EXISTS " + tableName);
                 stmt.execute(sb.toString());
             }
 
@@ -76,7 +85,7 @@ public class InMemoryEngine implements ExecutionEngine {
         }
 
         if (operator instanceof FromOperator fromOp) {
-            String tbl = fromOp.getTableName().toLowerCase();
+            String tbl = fromOp.getTableName().toLowerCase(Locale.ROOT);
             if (inMemoryTables.containsKey(tbl)) {
                 return inMemoryTables.get(tbl);
             }
@@ -89,7 +98,8 @@ public class InMemoryEngine implements ExecutionEngine {
 
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            boolean isQuery = sql.trim().toUpperCase().startsWith("SELECT") || sql.trim().toUpperCase().startsWith("WITH");
+            boolean isQuery = sql.trim().toUpperCase(Locale.ROOT).startsWith("SELECT") ||
+                    sql.trim().toUpperCase(Locale.ROOT).startsWith("WITH");
             if (isQuery) {
                 try (ResultSet rs = stmt.executeQuery(sql)) {
                     ResultSetMetaData md = rs.getMetaData();

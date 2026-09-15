@@ -82,7 +82,7 @@ public class RowDataFrame implements Iterable<Row>, Serializable {
 
     @Override
     public Iterator<Row> iterator() {
-        return rows.iterator();
+        return getRows().iterator();
     }
 
     @Override

@@ -1,21 +1,19 @@
 package com.pl.gdl.dataframe;
 
 import com.pl.gdl.common.model.ColumnInfo;
-import com.pl.gdl.common.model.Row;
 import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.dataframe.dataframe.CmdDataframe;
 import com.pl.gdl.dataframe.dataframe.CmdDataframeImpl;
 import com.pl.gdl.dataframe.datasource.HiveDatasource;
-import com.pl.gdl.dataframe.datasource.PostgresDatasource;
 import com.pl.gdl.dataframe.engine.InMemoryEngine;
 import com.pl.gdl.dataframe.engine.SqlPushdownEngine;
 import com.pl.gdl.dataframe.operator.base.FromOperator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class CmdDataframeTest {
 
@@ -80,5 +78,66 @@ public class CmdDataframeTest {
         assertThat(result.rowSize()).isEqualTo(2);
         assertThat((String) result.getRow(0).getValue("name")).isEqualTo("Charlie");
         assertThat((String) result.getRow(1).getValue("name")).isEqualTo("Alice");
+    }
+
+    @Test
+    public void testRegisterTableReplacesExistingSqlData() {
+        InMemoryEngine engine = new InMemoryEngine();
+        List<ColumnInfo> columns = List.of(
+                new ColumnInfo("id", "int"),
+                new ColumnInfo("name", "string")
+        );
+
+        RowDataFrame first = new RowDataFrame(columns);
+        first.addRowValue(List.of("1", "Alice"));
+        engine.registerTable("t_replace", first);
+
+        RowDataFrame second = new RowDataFrame(columns);
+        second.addRowValue(List.of("2", "Bob"));
+        engine.registerTable("t_replace", second);
+
+        CmdDataframe df = new CmdDataframeImpl(new FromOperator(new HiveDatasource(), "t_replace"), engine)
+                .where("1 = 1")
+                .select("id", "name");
+
+        RowDataFrame result = df.collect();
+        assertThat(result.rowSize()).isEqualTo(1);
+        assertThat((String) result.getRow(0).getValue("id")).isEqualTo("2");
+        assertThat((String) result.getRow(0).getValue("name")).isEqualTo("Bob");
+    }
+
+    @Test
+    public void testRegisterTableRejectsInvalidArguments() {
+        InMemoryEngine engine = new InMemoryEngine();
+        RowDataFrame data = new RowDataFrame(List.of(new ColumnInfo("id", "int")));
+
+        assertThatThrownBy(() -> engine.registerTable("   ", data))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tableName");
+        assertThatThrownBy(() -> engine.registerTable("t_null", null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("df");
+    }
+
+    @Test
+    public void testSwitchingExecutionEngineInvalidatesCachedData() {
+        List<ColumnInfo> columns = List.of(new ColumnInfo("name", "string"));
+
+        InMemoryEngine firstEngine = new InMemoryEngine();
+        RowDataFrame first = new RowDataFrame(columns);
+        first.addRowValue(List.of("Alice"));
+        firstEngine.registerTable("t_switch", first);
+
+        InMemoryEngine secondEngine = new InMemoryEngine();
+        RowDataFrame second = new RowDataFrame(columns);
+        second.addRowValue(List.of("Bob"));
+        secondEngine.registerTable("t_switch", second);
+
+        CmdDataframeImpl df = new CmdDataframeImpl(
+                new FromOperator(new HiveDatasource(), "t_switch"), firstEngine);
+
+        assertThat((String) df.collect().getRow(0).getValue("name")).isEqualTo("Alice");
+        df.setExecutionEngine(secondEngine);
+        assertThat((String) df.collect().getRow(0).getValue("name")).isEqualTo("Bob");
     }
 }
