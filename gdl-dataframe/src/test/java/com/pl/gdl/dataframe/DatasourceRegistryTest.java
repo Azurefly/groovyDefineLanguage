@@ -19,6 +19,9 @@ public class DatasourceRegistryTest {
     public void defaultRegistryExposesBuiltInDatasourceTypes() {
         assertThat(DatasourceRegistry.getDefault().getTypes())
                 .contains("HIVE", "LLM", "POSTGRES", "MYSQL", "SQLITE", "H2");
+        assertThat(DatasourceRegistry.getDefault().capabilities("sqlite"))
+                .contains(DatasourceCapability.READ, DatasourceCapability.WRITE,
+                        DatasourceCapability.SQL, DatasourceCapability.JDBC);
     }
 
     @Test
@@ -50,6 +53,16 @@ public class DatasourceRegistryTest {
     }
 
     @Test
+    public void capabilityLessProviderIsSafe() {
+        DatasourceRegistry registry = new DatasourceRegistry();
+        registry.register(new DatasourceProvider() {
+            @Override public String getType() { return "EMPTY_CAPS"; }
+            @Override public CmdDatasource create(Map<String, Object> config) { return new HiveDatasource(); }
+        });
+        assertThat(registry.capabilities("EMPTY_CAPS")).isEmpty();
+    }
+
+    @Test
     public void h2ProviderExecutesRealJdbcQuery() {
         H2Datasource datasource = new H2Datasource("jdbc:h2:mem:querytest;DB_CLOSE_DELAY=-1", "sa", "");
         ExecutionEngine engine = DatasourceRegistry.getDefault().createExecutionEngine(datasource);
@@ -58,6 +71,17 @@ public class DatasourceRegistryTest {
         assertThat(result.rowSize()).isEqualTo(1);
         assertThat((Integer) result.getRow(0).getValue("id")).isEqualTo(7);
         assertThat((String) result.getRow(0).getValue("name")).isEqualTo("gdl");
+    }
+
+    @Test
+    public void sqliteProviderExecutesRealJdbcQuery() {
+        SqliteDatasource datasource = new SqliteDatasource(":memory:");
+        ExecutionEngine engine = DatasourceRegistry.getDefault().createExecutionEngine(datasource);
+        RowDataFrame result = engine.execute(new QueryOperator(datasource, "SELECT 9 AS id, 'sqlite' AS source_name"));
+
+        assertThat(result.rowSize()).isEqualTo(1);
+        assertThat(((Number) result.getRow(0).getValue("id")).intValue()).isEqualTo(9);
+        assertThat((String) result.getRow(0).getValue("source_name")).isEqualTo("sqlite");
     }
 
     @Test
