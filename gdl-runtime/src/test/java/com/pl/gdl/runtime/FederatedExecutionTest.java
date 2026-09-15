@@ -67,8 +67,8 @@ public class FederatedExecutionTest {
 
         assertThat(result.rows().rowSize()).isEqualTo(1);
         assertThat(((Number) result.rows().getRow(0).getValue("person.id")).intValue()).isEqualTo(1);
-        assertThat(result.rows().getRow(0).getValue("person.name")).isEqualTo("alice");
-        assertThat(result.rows().getRow(0).getValue("dept.department")).isEqualTo("risk");
+        assertThat((Object) result.rows().getRow(0).getValue("person.name")).isEqualTo("alice");
+        assertThat((Object) result.rows().getRow(0).getValue("dept.department")).isEqualTo("risk");
         assertThat(result.sourcePlans()).hasSize(2);
         assertThat(result.exchanges()).hasSize(2);
         assertThat(result.exchanges()).allMatch(exchange -> exchange.mode() == ExchangeBoundary.MaterializationMode.MEMORY);
