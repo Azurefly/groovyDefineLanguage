@@ -14,6 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DatasourceRegistry {
     private static final DatasourceRegistry DEFAULT = createDefault();
     private final Map<String, DatasourceProvider> providers = new ConcurrentHashMap<>();
+    private final JdbcMetadataService metadataService = new JdbcMetadataService();
+    private volatile SecretResolver secretResolver = SecretResolver.system();
 
     public DatasourceRegistry() {
         ServiceLoader.load(DatasourceProvider.class).forEach(this::register);
@@ -27,6 +29,11 @@ public class DatasourceRegistry {
         DatasourceRegistry registry = new DatasourceRegistry();
         registerBuiltIns(registry);
         return registry;
+    }
+
+    public DatasourceRegistry setSecretResolver(SecretResolver secretResolver) {
+        this.secretResolver = Objects.requireNonNull(secretResolver, "secretResolver must not be null");
+        return this;
     }
 
     public DatasourceRegistry register(DatasourceProvider provider) {
@@ -55,6 +62,22 @@ public class DatasourceRegistry {
         return require(datasource.getDatasourceType()).createExecutionEngine(datasource);
     }
 
+    public DatasourceHealth health(CmdDatasource datasource) {
+        if (datasource instanceof JdbcDatasource jdbcDatasource) {
+            return metadataService.health(jdbcDatasource);
+        }
+        String type = datasource == null ? "null" : datasource.getDatasourceType();
+        return DatasourceHealth.unhealthy(0, "Health check is not implemented for datasource type " + type);
+    }
+
+    public JdbcMetadataService.Snapshot inspect(CmdDatasource datasource) {
+        if (!(datasource instanceof JdbcDatasource jdbcDatasource)) {
+            String type = datasource == null ? "null" : datasource.getDatasourceType();
+            throw new IllegalArgumentException("Metadata inspection requires JDBC datasource, got " + type);
+        }
+        return metadataService.inspect(jdbcDatasource);
+    }
+
     public Set<DatasourceCapability> capabilities(String type) {
         Set<DatasourceCapability> capabilities = require(type).getCapabilities();
         if (capabilities == null || capabilities.isEmpty()) return Set.of();
@@ -77,20 +100,32 @@ public class DatasourceRegistry {
 
         registry.register(provider("POSTGRES", jdbcCaps, new PostgresSqlDialect(), cfg ->
                 new PostgresDatasource(str(cfg, "host", "localhost"), integer(cfg, "port", 5432),
-                        str(cfg, "database", "postgres"), str(cfg, "username", null), str(cfg, "password", null))));
+                        str(cfg, "database", "postgres"), str(cfg, "username", null), registry.password(cfg))));
         registry.register(provider("MYSQL", jdbcCaps, new MysqlSqlDialect(), cfg ->
                 new MysqlDatasource(str(cfg, "host", "localhost"), integer(cfg, "port", 3306),
-                        str(cfg, "database", "mysql"), str(cfg, "username", null), str(cfg, "password", null))));
+                        str(cfg, "database", "mysql"), str(cfg, "username", null), registry.password(cfg))));
         registry.register(provider("SQLITE", jdbcCaps, new SqliteSqlDialect(), cfg ->
                 new SqliteDatasource(str(cfg, "path", ":memory:"))));
         registry.register(provider("H2", jdbcCaps, new H2SqlDialect(), cfg ->
                 new H2Datasource(str(cfg, "url", "jdbc:h2:mem:gdl;DB_CLOSE_DELAY=-1"),
-                        str(cfg, "username", "sa"), str(cfg, "password", ""))));
+                        str(cfg, "username", "sa"), registry.password(cfg, ""))));
         registry.register(provider("HIVE", EnumSet.of(DatasourceCapability.READ, DatasourceCapability.WRITE,
                 DatasourceCapability.SQL, DatasourceCapability.PARTITIONED_WRITE), new HiveSqlDialect(), cfg ->
                 new HiveDatasource(str(cfg, "confName", "default"))));
         registry.register(provider("LLM", EnumSet.of(DatasourceCapability.LLM, DatasourceCapability.REMOTE_EXECUTION), null, cfg ->
                 new LlmDatasource(str(cfg, "url", null), integer(cfg, "concurrent", 10))));
+    }
+
+    private String password(Map<String, Object> cfg) {
+        return password(cfg, null);
+    }
+
+    private String password(Map<String, Object> cfg, String defaultValue) {
+        Object reference = cfg.get("passwordRef");
+        if (reference != null && !String.valueOf(reference).isBlank()) {
+            return secretResolver.resolve(String.valueOf(reference));
+        }
+        return str(cfg, "password", defaultValue);
     }
 
     private static DatasourceProvider provider(String type, Set<DatasourceCapability> capabilities,
