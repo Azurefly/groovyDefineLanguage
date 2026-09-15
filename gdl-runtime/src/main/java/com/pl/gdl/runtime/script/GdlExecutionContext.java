@@ -16,6 +16,9 @@ import com.pl.gdl.dataframe.operator.realtime.PeriodReactorOperator;
 import com.pl.gdl.dataframe.operator.realtime.TaskReactorOperator;
 import com.pl.gdl.runtime.dag.DagGraph;
 import com.pl.gdl.runtime.dag.DagNode;
+import com.pl.gdl.runtime.plan.DatasourceExecutionPlanner;
+import com.pl.gdl.runtime.plan.ExecutionIntent;
+import com.pl.gdl.runtime.plan.ExecutionPlan;
 import com.pl.gdl.runtime.variable.VariableManager;
 import groovy.lang.Closure;
 
@@ -26,6 +29,8 @@ public class GdlExecutionContext {
 
     private ExecutionEngine executionEngine;
     private DatasourceRegistry datasourceRegistry;
+    private DatasourceExecutionPlanner executionPlanner;
+    private final List<ExecutionPlan> executionPlans = new ArrayList<>();
     private final DagGraph dagGraph = new DagGraph();
     private final Map<String, Object> scriptParameters = new LinkedHashMap<>();
     private final Set<String> registeredTempTables = new LinkedHashSet<>();
@@ -36,6 +41,7 @@ public class GdlExecutionContext {
     public GdlExecutionContext() {
         this.executionEngine = new InMemoryEngine();
         this.datasourceRegistry = DatasourceRegistry.getDefault();
+        this.executionPlanner = new DatasourceExecutionPlanner();
     }
 
     public static GdlExecutionContext get() { return CURRENT.get(); }
@@ -48,6 +54,11 @@ public class GdlExecutionContext {
     public void setDatasourceRegistry(DatasourceRegistry datasourceRegistry) {
         this.datasourceRegistry = datasourceRegistry != null ? datasourceRegistry : DatasourceRegistry.getDefault();
     }
+    public DatasourceExecutionPlanner getExecutionPlanner() { return executionPlanner; }
+    public void setExecutionPlanner(DatasourceExecutionPlanner executionPlanner) {
+        this.executionPlanner = executionPlanner != null ? executionPlanner : new DatasourceExecutionPlanner();
+    }
+    public List<ExecutionPlan> getExecutionPlans() { return Collections.unmodifiableList(executionPlans); }
     public DagGraph getDagGraph() { return dagGraph; }
     public Map<String, Object> getScriptParameters() { return scriptParameters; }
 
@@ -68,7 +79,7 @@ public class GdlExecutionContext {
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
         dagGraph.addNode(new DagNode(nodeId, "from " + table, "FromOperator", "table"));
-        return new CmdDataframeImpl(op, resolveEngine(ds));
+        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.READ));
     }
 
     public CmdDataframe createQuery(CmdDatasource ds, String sql) {
@@ -77,7 +88,7 @@ public class GdlExecutionContext {
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
         dagGraph.addNode(new DagNode(nodeId, "query", "QueryOperator", "query"));
-        return new CmdDataframeImpl(op, resolveEngine(ds));
+        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.SQL_READ));
     }
 
     public CmdDataframe createInsert(CmdDatasource ds, String targetTable, String sql) {
@@ -85,15 +96,14 @@ public class GdlExecutionContext {
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
         dagGraph.addNode(new DagNode(nodeId, "insert " + targetTable, "InsertOperator", "insert"));
-        return new CmdDataframeImpl(op, resolveEngine(ds));
+        return new CmdDataframeImpl(op, planEngine(ds, ExecutionIntent.SQL_WRITE));
     }
 
-    private ExecutionEngine resolveEngine(CmdDatasource datasource) {
-        if (datasource == null || datasourceRegistry == null) return executionEngine;
-        return datasourceRegistry.find(datasource.getDatasourceType())
-                .map(provider -> provider.createExecutionEngine(datasource))
-                .filter(Objects::nonNull)
-                .orElse(executionEngine);
+    private ExecutionEngine planEngine(CmdDatasource datasource, ExecutionIntent intent) {
+        if (datasourceRegistry == null || executionPlanner == null) return executionEngine;
+        ExecutionPlan plan = executionPlanner.plan(datasource, intent, datasourceRegistry, executionEngine);
+        executionPlans.add(plan);
+        return plan.engine();
     }
 
     public CmdDataframe createPeriodReactor(String cronExpr) {
