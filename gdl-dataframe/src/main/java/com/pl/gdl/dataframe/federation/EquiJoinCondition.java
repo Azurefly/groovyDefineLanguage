@@ -1,11 +1,18 @@
 package com.pl.gdl.dataframe.federation;
 
+import java.util.Locale;
+
 /** A deliberately narrow parser for automatic cross-source equi-join rewrite. */
 public record EquiJoinCondition(String leftKey, String rightKey) {
 
     public static EquiJoinCondition parse(String condition) {
         if (condition == null || condition.isBlank()) {
             throw new IllegalArgumentException("Federated join condition must not be blank");
+        }
+        String normalized = condition.toUpperCase(Locale.ROOT);
+        if (normalized.contains(" AND ") || normalized.contains(" OR ")) {
+            throw new UnsupportedOperationException(
+                    "Automatic federated join currently supports one equality condition, got: " + condition);
         }
         String[] parts = condition.split("=", -1);
         if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
