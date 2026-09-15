@@ -4,6 +4,7 @@ import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.dataframe.dataframe.CmdDataframe;
 import com.pl.gdl.dataframe.dataframe.CmdDataframeImpl;
 import com.pl.gdl.dataframe.datasource.CmdDatasource;
+import com.pl.gdl.dataframe.datasource.DatasourceRegistry;
 import com.pl.gdl.dataframe.engine.ExecutionEngine;
 import com.pl.gdl.dataframe.engine.InMemoryEngine;
 import com.pl.gdl.dataframe.operator.advanced.GroovyCustomOperator;
@@ -24,6 +25,7 @@ public class GdlExecutionContext {
     private static final ThreadLocal<GdlExecutionContext> CURRENT = ThreadLocal.withInitial(GdlExecutionContext::new);
 
     private ExecutionEngine executionEngine;
+    private DatasourceRegistry datasourceRegistry;
     private final DagGraph dagGraph = new DagGraph();
     private final Map<String, Object> scriptParameters = new LinkedHashMap<>();
     private final Set<String> registeredTempTables = new LinkedHashSet<>();
@@ -33,78 +35,40 @@ public class GdlExecutionContext {
 
     public GdlExecutionContext() {
         this.executionEngine = new InMemoryEngine();
+        this.datasourceRegistry = DatasourceRegistry.getDefault();
     }
 
-    public static GdlExecutionContext get() {
-        return CURRENT.get();
-    }
+    public static GdlExecutionContext get() { return CURRENT.get(); }
+    public static void set(GdlExecutionContext context) { CURRENT.set(context); }
+    public static void clear() { CURRENT.remove(); }
 
-    public static void set(GdlExecutionContext context) {
-        CURRENT.set(context);
+    public ExecutionEngine getExecutionEngine() { return executionEngine; }
+    public void setExecutionEngine(ExecutionEngine executionEngine) { this.executionEngine = executionEngine; }
+    public DatasourceRegistry getDatasourceRegistry() { return datasourceRegistry; }
+    public void setDatasourceRegistry(DatasourceRegistry datasourceRegistry) {
+        this.datasourceRegistry = datasourceRegistry != null ? datasourceRegistry : DatasourceRegistry.getDefault();
     }
-
-    public static void clear() {
-        CURRENT.remove();
-    }
-
-    public ExecutionEngine getExecutionEngine() {
-        return executionEngine;
-    }
-
-    public void setExecutionEngine(ExecutionEngine executionEngine) {
-        this.executionEngine = executionEngine;
-    }
-
-    public DagGraph getDagGraph() {
-        return dagGraph;
-    }
-
-    public Map<String, Object> getScriptParameters() {
-        return scriptParameters;
-    }
+    public DagGraph getDagGraph() { return dagGraph; }
+    public Map<String, Object> getScriptParameters() { return scriptParameters; }
 
     public void setScriptParameters(Map<String, Object> params) {
-        if (params != null) {
-            this.scriptParameters.putAll(params);
-        }
+        if (params != null) this.scriptParameters.putAll(params);
     }
 
-    public Set<String> getRegisteredTempTables() {
-        return registeredTempTables;
-    }
-
-    public void registerTempTable(String tableName) {
-        if (tableName != null) {
-            registeredTempTables.add(tableName);
-        }
-    }
-
-    public List<String> getComments() {
-        return comments;
-    }
-
-    public void addComment(String comment) {
-        if (comment != null) {
-            this.comments.add(comment);
-        }
-    }
-
-    public CmdDataframe getReturnDf() {
-        return returnDf;
-    }
-
-    public void setReturnDf(CmdDataframe returnDf) {
-        this.returnDf = returnDf;
-    }
+    public Set<String> getRegisteredTempTables() { return registeredTempTables; }
+    public void registerTempTable(String tableName) { if (tableName != null) registeredTempTables.add(tableName); }
+    public List<String> getComments() { return comments; }
+    public void addComment(String comment) { if (comment != null) this.comments.add(comment); }
+    public CmdDataframe getReturnDf() { return returnDf; }
+    public void setReturnDf(CmdDataframe returnDf) { this.returnDf = returnDf; }
 
     public CmdDataframe createFrom(CmdDatasource ds, String table) {
         FromOperator op = new FromOperator(ds, table);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
-
         dagGraph.addNode(new DagNode(nodeId, "from " + table, "FromOperator", "table"));
-        return new CmdDataframeImpl(op, executionEngine);
+        return new CmdDataframeImpl(op, resolveEngine(ds));
     }
 
     public CmdDataframe createQuery(CmdDatasource ds, String sql) {
@@ -112,25 +76,30 @@ public class GdlExecutionContext {
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
-
         dagGraph.addNode(new DagNode(nodeId, "query", "QueryOperator", "query"));
-        return new CmdDataframeImpl(op, executionEngine);
+        return new CmdDataframeImpl(op, resolveEngine(ds));
     }
 
     public CmdDataframe createInsert(CmdDatasource ds, String targetTable, String sql) {
         InsertOperator op = new InsertOperator(ds, targetTable, sql);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
-
         dagGraph.addNode(new DagNode(nodeId, "insert " + targetTable, "InsertOperator", "insert"));
-        return new CmdDataframeImpl(op, executionEngine);
+        return new CmdDataframeImpl(op, resolveEngine(ds));
+    }
+
+    private ExecutionEngine resolveEngine(CmdDatasource datasource) {
+        if (datasource == null || datasourceRegistry == null) return executionEngine;
+        return datasourceRegistry.find(datasource.getDatasourceType())
+                .map(provider -> provider.createExecutionEngine(datasource))
+                .filter(Objects::nonNull)
+                .orElse(executionEngine);
     }
 
     public CmdDataframe createPeriodReactor(String cronExpr) {
         PeriodReactorOperator op = new PeriodReactorOperator(cronExpr);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
-
         dagGraph.addNode(new DagNode(nodeId, "periodReactor", "PeriodReactorOperator", "signal"));
         return new CmdDataframeImpl(op, executionEngine);
     }
@@ -139,7 +108,6 @@ public class GdlExecutionContext {
         TaskReactorOperator op = new TaskReactorOperator(taskIds, successRate, delaySec);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
-
         dagGraph.addNode(new DagNode(nodeId, "taskReactor", "TaskReactorOperator", "signal"));
         return new CmdDataframeImpl(op, executionEngine);
     }
@@ -148,7 +116,6 @@ public class GdlExecutionContext {
         HttpOperator op = new HttpOperator(method, url);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
-
         dagGraph.addNode(new DagNode(nodeId, "http " + method, "HttpOperator", "http"));
         return op;
     }
@@ -157,7 +124,6 @@ public class GdlExecutionContext {
         GroovyCustomOperator op = new GroovyCustomOperator(closure);
         String nodeId = "node_" + (nodeSequence++);
         op.setNodeId(nodeId);
-
         dagGraph.addNode(new DagNode(nodeId, "groovy", "GroovyCustomOperator", "script"));
         return new CmdDataframeImpl(op, executionEngine);
     }
