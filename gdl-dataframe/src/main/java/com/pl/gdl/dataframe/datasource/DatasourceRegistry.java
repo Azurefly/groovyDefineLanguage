@@ -56,7 +56,9 @@ public class DatasourceRegistry {
     }
 
     public Set<DatasourceCapability> capabilities(String type) {
-        return Collections.unmodifiableSet(EnumSet.copyOf(require(type).getCapabilities()));
+        Set<DatasourceCapability> capabilities = require(type).getCapabilities();
+        if (capabilities == null || capabilities.isEmpty()) return Set.of();
+        return Collections.unmodifiableSet(EnumSet.copyOf(capabilities));
     }
 
     public Set<String> getTypes() {
@@ -88,7 +90,7 @@ public class DatasourceRegistry {
                 DatasourceCapability.SQL, DatasourceCapability.PARTITIONED_WRITE), new HiveSqlDialect(), cfg ->
                 new HiveDatasource(str(cfg, "confName", "default"))));
         registry.register(provider("LLM", EnumSet.of(DatasourceCapability.LLM, DatasourceCapability.REMOTE_EXECUTION), null, cfg ->
-                new LlmDatasource(str(cfg, "url", null), integer(cfg, "concurrent", 1))));
+                new LlmDatasource(str(cfg, "url", null), integer(cfg, "concurrent", 10))));
     }
 
     private static DatasourceProvider provider(String type, Set<DatasourceCapability> capabilities,
