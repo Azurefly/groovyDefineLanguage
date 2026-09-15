@@ -43,7 +43,7 @@ public class RowDataFrameTest {
         df.addRowValue(List.of(1));
 
         Iterator<Row> iterator = df.iterator();
-        assertThat(iterator.next().getValue("id")).isEqualTo(1);
+        assertThat((Integer) iterator.next().getValue("id")).isEqualTo(1);
         assertThatThrownBy(iterator::remove)
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(df.rowSize()).isEqualTo(1);
