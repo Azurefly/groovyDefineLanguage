@@ -1,5 +1,6 @@
 package com.pl.gdl.runtime;
 
+import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.dataframe.dataframe.CmdDataframe;
 import com.pl.gdl.runtime.compiler.GdlCompiler;
 import com.pl.gdl.runtime.dag.DagGraph;
@@ -58,5 +59,21 @@ public class GdlCompilerTest {
         String json = DagSerializer.toJson(dag);
         assertThat(json).contains("\"canvas\"");
         assertThat(json).contains("\"nodes\"");
+    }
+
+    @Test
+    public void testGenericDatasourceDslExecutesH2Query() {
+        GdlCompiler compiler = new GdlCompiler();
+        String script = """
+            def ds = datasource("H2", [url: "jdbc:h2:mem:dsltest;DB_CLOSE_DELAY=-1"])
+            def df = query(ds, "SELECT 42 AS answer, 'multi-source' AS label")
+            returnDf(df)
+        """;
+
+        GdlCompiler.GdlExecutionResult result = compiler.execute(script, Map.of());
+        RowDataFrame rows = result.getReturnDf().collect();
+        assertThat(rows.rowSize()).isEqualTo(1);
+        assertThat((Integer) rows.getRow(0).getValue("answer")).isEqualTo(42);
+        assertThat((String) rows.getRow(0).getValue("label")).isEqualTo("multi-source");
     }
 }

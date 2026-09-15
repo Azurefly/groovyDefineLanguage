@@ -1,20 +1,21 @@
 package com.pl.gdl.dataframe.datasource;
 
-public class PostgresDatasource extends CmdDatasource implements JdbcDatasource {
+public class MysqlDatasource extends CmdDatasource implements JdbcDatasource {
     private String host;
-    private int port = 5432;
+    private int port = 3306;
     private String database;
     private String username;
     private String password;
+    private String parameters = "useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC";
 
-    public PostgresDatasource() {
-        super("postgres-default");
+    public MysqlDatasource() {
+        super("mysql-default");
     }
 
-    public PostgresDatasource(String host, int port, String database, String username, String password) {
+    public MysqlDatasource(String host, int port, String database, String username, String password) {
         super(database);
         this.host = host;
-        this.port = port > 0 ? port : 5432;
+        this.port = port > 0 ? port : 3306;
         this.database = database;
         this.username = username;
         this.password = password;
@@ -30,17 +31,20 @@ public class PostgresDatasource extends CmdDatasource implements JdbcDatasource 
     public void setUsername(String username) { this.username = username; }
     @Override public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+    public String getParameters() { return parameters; }
+    public void setParameters(String parameters) { this.parameters = parameters; }
 
-    @Override public String getDatasourceType() { return "POSTGRES"; }
-    @Override public String getDriverClassName() { return "org.postgresql.Driver"; }
+    @Override public String getDatasourceType() { return "MYSQL"; }
+    @Override public String getDriverClassName() { return "com.mysql.cj.jdbc.Driver"; }
 
     @Override
     public String getJdbcUrl() {
-        return "jdbc:postgresql://" + host + ":" + port + "/" + database;
+        String base = "jdbc:mysql://" + host + ":" + port + "/" + database;
+        return parameters == null || parameters.isBlank() ? base : base + "?" + parameters;
     }
 
     @Override
     public String toString() {
-        return "PostgresDatasource{" + host + ":" + port + "/" + database + ", user='" + username + "', areaCode='" + areaCode + "'}";
+        return "MysqlDatasource{" + host + ":" + port + "/" + database + ", user='" + username + "', areaCode='" + areaCode + "'}";
     }
 }
