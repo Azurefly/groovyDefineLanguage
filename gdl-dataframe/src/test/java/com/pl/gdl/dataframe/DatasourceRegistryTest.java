@@ -97,7 +97,7 @@ public class DatasourceRegistryTest {
         assertThatThrownBy(() -> engine.execute(new QueryOperator(datasource,
                 "INSERT INTO rollback_sample VALUES (2, 'temporary'); " +
                 "INSERT INTO rollback_sample VALUES (1, 'duplicate')")))
-                .isRuntimeException();
+                .isInstanceOf(RuntimeException.class);
 
         RowDataFrame result = engine.execute(new QueryOperator(datasource,
                 "SELECT COUNT(*) AS total FROM rollback_sample"));
