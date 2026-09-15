@@ -54,7 +54,21 @@ public class DatasourceRegistry {
     }
 
     public CmdDatasource create(String type, Map<String, Object> config) {
-        return require(type).create(config == null ? Map.of() : config);
+        DatasourceProvider provider = require(type);
+        Map<String, Object> normalizedConfig = config == null ? Map.of() : Map.copyOf(config);
+        provider.validateConfig(normalizedConfig);
+        return provider.create(normalizedConfig);
+    }
+
+    public DatasourceProviderDescriptor describe(String type) {
+        return require(type).describe();
+    }
+
+    public List<DatasourceProviderDescriptor> describeAll() {
+        return providers.values().stream()
+                .map(DatasourceProvider::describe)
+                .sorted(Comparator.comparing(DatasourceProviderDescriptor::type, String.CASE_INSENSITIVE_ORDER))
+                .toList();
     }
 
     public ExecutionEngine createExecutionEngine(CmdDatasource datasource) {
