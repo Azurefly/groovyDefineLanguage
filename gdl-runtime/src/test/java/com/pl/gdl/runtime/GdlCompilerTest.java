@@ -5,6 +5,7 @@ import com.pl.gdl.dataframe.dataframe.CmdDataframe;
 import com.pl.gdl.runtime.compiler.GdlCompiler;
 import com.pl.gdl.runtime.dag.DagGraph;
 import com.pl.gdl.runtime.dag.DagSerializer;
+import com.pl.gdl.runtime.plan.ExecutionPlan;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -27,6 +28,8 @@ public class GdlCompilerTest {
 
         CmdDataframe returnDf = result.getReturnDf();
         assertThat(returnDf.getOperator().getOperatorName()).isEqualTo("select");
+        assertThat(result.getContext().getExecutionPlans()).hasSize(1);
+        assertThat(result.getContext().getExecutionPlans().get(0).mode()).isEqualTo(ExecutionPlan.Mode.FALLBACK);
     }
 
     @Test
@@ -75,5 +78,8 @@ public class GdlCompilerTest {
         assertThat(rows.rowSize()).isEqualTo(1);
         assertThat((Integer) rows.getRow(0).getValue("answer")).isEqualTo(42);
         assertThat((String) rows.getRow(0).getValue("label")).isEqualTo("multi-source");
+        assertThat(result.getContext().getExecutionPlans()).hasSize(1);
+        assertThat(result.getContext().getExecutionPlans().get(0).mode())
+                .isEqualTo(ExecutionPlan.Mode.PROVIDER_PUSHDOWN);
     }
 }
