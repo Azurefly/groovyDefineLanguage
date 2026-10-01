@@ -1,5 +1,6 @@
 package com.pl.gdl.drift.algorithm;
 
+import com.pl.gdl.common.constant.GdlConstants;
 import com.pl.gdl.drift.model.CutEdge;
 import com.pl.gdl.drift.model.DriftPlan;
 import com.pl.gdl.drift.model.ExecutionSubgraph;
@@ -10,19 +11,38 @@ import com.pl.gdl.runtime.dag.DagNode;
 
 import java.util.*;
 
+/**
+ * 子图切分器：按地域编码把完整 DAG 切分为本地子图与远端子图，
+ * 跨地域的边记录为 {@link CutEdge}（通过中间表做数据漂移）。
+ *
+ * <p>地域编码统一做规范化（见 {@link #normalizeAreaCode(String)}），
+ * 未指定时默认使用 {@link GdlConstants#DEFAULT_AREA_CODE}。</p>
+ */
 public class SubgraphPartitioner {
 
+    /**
+     * 规范化地域编码：trim + 转小写（{@link Locale#ROOT}）；
+     * 为空时回退为 {@link GdlConstants#DEFAULT_AREA_CODE}。
+     */
+    public static String normalizeAreaCode(String areaCode) {
+        if (areaCode == null || areaCode.isBlank()) {
+            return GdlConstants.DEFAULT_AREA_CODE;
+        }
+        return areaCode.trim().toLowerCase(Locale.ROOT);
+    }
+
     public DriftPlan partition(String originalScript, DagGraph originalGraph, String localAreaCode) {
-        String effectiveLocalArea = localAreaCode != null ? localAreaCode : "local";
+        String effectiveLocalArea = normalizeAreaCode(localAreaCode);
         DriftPlan plan = new DriftPlan(originalScript, effectiveLocalArea);
 
         Map<String, ExecutionSubgraph> subgraphs = new LinkedHashMap<>();
 
         // Group nodes by areaCode
         for (DagNode node : originalGraph.getNodes()) {
-            String nodeArea = node.getAreaCode() != null ? node.getAreaCode() : effectiveLocalArea;
+            String nodeArea = node.getAreaCode() != null ? normalizeAreaCode(node.getAreaCode()) : effectiveLocalArea;
             ExecutionSubgraph sg = subgraphs.computeIfAbsent(nodeArea, a ->
-                    new ExecutionSubgraph(a, a.equalsIgnoreCase(effectiveLocalArea) || a.equalsIgnoreCase("local")));
+                    new ExecutionSubgraph(a, a.equalsIgnoreCase(effectiveLocalArea)
+                            || GdlConstants.DEFAULT_AREA_CODE.equalsIgnoreCase(a)));
             sg.addNode(node);
         }
 
@@ -32,8 +52,8 @@ public class SubgraphPartitioner {
             DagNode tgt = originalGraph.getNode(edge.getTargetNode());
             if (src == null || tgt == null) continue;
 
-            String srcArea = src.getAreaCode() != null ? src.getAreaCode() : effectiveLocalArea;
-            String tgtArea = tgt.getAreaCode() != null ? tgt.getAreaCode() : effectiveLocalArea;
+            String srcArea = src.getAreaCode() != null ? normalizeAreaCode(src.getAreaCode()) : effectiveLocalArea;
+            String tgtArea = tgt.getAreaCode() != null ? normalizeAreaCode(tgt.getAreaCode()) : effectiveLocalArea;
 
             if (srcArea.equalsIgnoreCase(tgtArea)) {
                 ExecutionSubgraph sg = subgraphs.get(srcArea);

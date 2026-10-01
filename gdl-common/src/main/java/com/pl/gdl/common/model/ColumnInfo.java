@@ -4,6 +4,12 @@ import com.pl.gdl.common.enums.DataType;
 import java.io.Serializable;
 import java.util.Objects;
 
+/**
+ * 列元数据：描述数据框或表中的一列（列名、数据类型、长度、注释等）。
+ *
+ * <p>相等性语义：两列当且仅当 {@code columnName} 与 {@code dataTypeName} 均相等
+ * （空安全比较）时视为相等。</p>
+ */
 public class ColumnInfo implements Serializable {
     private int columnIndex;
     private String columnName;
@@ -84,12 +90,13 @@ public class ColumnInfo implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ColumnInfo that = (ColumnInfo) o;
-        return Objects.equals(columnName, that.columnName);
+        return Objects.equals(columnName, that.columnName)
+                && Objects.equals(dataTypeName, that.dataTypeName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(columnName);
+        return Objects.hash(columnName, dataTypeName);
     }
 
     @Override

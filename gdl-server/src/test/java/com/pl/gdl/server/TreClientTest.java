@@ -1,5 +1,6 @@
 package com.pl.gdl.server;
 
+import com.pl.gdl.common.enums.TaskStatus;
 import com.pl.gdl.common.model.OntoInfoRsp;
 import com.pl.gdl.common.model.RegisterRsp;
 import com.pl.gdl.common.model.TaskResult;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 public class TreClientTest {
 
@@ -56,14 +58,74 @@ public class TreClientTest {
         String taskId = client.startTask(script, Map.of("areaCode", "320100"));
         assertThat(taskId).isNotNull();
 
-        TaskResult result = client.getTaskResult(taskId);
+        // 任务为异步执行：轮询等待完成
+        TaskResult result = null;
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < deadline) {
+            result = client.getTaskResult(taskId);
+            if (result != null && TaskStatus.FINISHED.equals(result.getStatus())) {
+                break;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
         assertThat(result).isNotNull();
-        assertThat(result.getStatus()).isEqualTo("FINISHED");
+        assertThat(result.getStatus()).isEqualTo(TaskStatus.FINISHED);
 
         // 3. Get DAG
         String dagJson = client.getTsmlToDag(script);
         assertThat(dagJson).contains("\"canvas\"");
         assertThat(dagJson).contains("FromOperator");
+    }
+
+    @Test
+    public void testStartTaskIsAsync() throws Exception {
+        TreClientImpl client = new TreClientImpl();
+        try {
+            String script = """
+                def hiveDs = hive()
+                def df = from(hiveDs, "t_user").select("id, name")
+                returnDf(df)
+            """;
+
+            // 提交后应立即返回，不阻塞等待执行完成
+            long startNanos = System.nanoTime();
+            String taskId = client.startTask(script, Map.of());
+            long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+
+            assertThat(taskId).isNotNull().isNotBlank();
+            assertThat(elapsedMillis).isLessThan(10_000);
+
+            // 可马上查到任务占位：RUNNING（执行中）或 FINISHED（已快速完成）
+            TaskResult immediate = client.getTaskResult(taskId);
+            assertThat(immediate).isNotNull();
+            assertThat(immediate.getTaskId()).isEqualTo(taskId);
+            assertThat(immediate.getStatus()).isIn(TaskStatus.RUNNING, TaskStatus.FINISHED);
+
+            // 轮询等待任务执行完成
+            TaskResult finalResult = null;
+            long deadline = System.currentTimeMillis() + 60_000;
+            while (System.currentTimeMillis() < deadline) {
+                finalResult = client.getTaskResult(taskId);
+                if (finalResult != null && TaskStatus.FINISHED.equals(finalResult.getStatus())) {
+                    break;
+                }
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            assertThat(finalResult).isNotNull();
+            assertThat(finalResult.getStatus()).isEqualTo(TaskStatus.FINISHED);
+        } finally {
+            client.close();
+        }
     }
 
     @Test

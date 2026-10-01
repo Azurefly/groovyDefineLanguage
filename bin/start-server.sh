@@ -1,34 +1,39 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# GDL / TRE Engine Remote Service Startup Script
-# ==============================================================================
-set -e
+# =============================================================================
+# GDL / TRE Engine HTTP 服务启动脚本
+# =============================================================================
+# 用法: ./bin/start-server.sh [port] [token]
+#   port  - 监听端口，默认 8080
+#   token - 鉴权 token；不传则服务以 open 模式启动（仅建议本地调试）
+# =============================================================================
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
-PORT=${1:-8080}
-TOKEN=${2:-""}
+PORT="${1:-8080}"
+TOKEN="${2:-}"
 
-echo "=== 正在启动 GDL 引擎远程服务 ==="
-echo "工作目录: $DIR"
-echo "服务端口: $PORT"
+command -v java >/dev/null 2>&1 || { echo "错误: 未找到 java，请先安装 JDK 17+" >&2; exit 1; }
+command -v mvn >/dev/null 2>&1 || { echo "错误: 未找到 mvn，请先安装 Maven 3.8+" >&2; exit 1; }
 
-CP=$(find /Users/pan/.m2/repository -name "groovy-4.0.18.jar" -o -name "groovy-json-4.0.18.jar" -o -name "slf4j-api-2.0.13.jar" -o -name "h2-2.2.224.jar" -o -name "okhttp-4.12.0.jar" -o -name "assertj-core-3.24.2.jar" -o -name "junit-jupiter-api-5.10.2.jar" -o -name "apiguardian-api-*.jar" -o -name "byte-buddy-1.14.9.jar" 2>/dev/null | tr '\n' ':')
+echo "=== 正在构建 GDL 引擎 ==="
+mvn -B -ntp -q -DskipTests package
 
-if [ ! -d "target/classes" ]; then
-    echo "正在编译源码..."
-    find gdl-*/src/main/java gdl-*/src/test/java -name "*.java" > sources.txt
-    mkdir -p target/classes
-    javac -cp "$CP" -d target/classes @sources.txt
-    rm -f sources.txt
+echo "=== 正在组装运行时 classpath ==="
+CP_FILE="$(mktemp)"
+mvn -B -ntp -q -pl gdl-server -am dependency:build-classpath -Dmdep.outputFile="$CP_FILE" -Dmdep.includeScope=runtime
+CP="$(cat "$CP_FILE")"
+rm -f "$CP_FILE"
+for m in gdl-common gdl-dataframe gdl-runtime gdl-ontology gdl-drift gdl-server; do
+  CP="$DIR/$m/target/classes:$CP"
+done
+
+echo "=== 正在启动 GDL 引擎 HTTP 服务 ==="
+echo "监听端口: $PORT"
+if [ -z "$TOKEN" ]; then
+  echo "警告: 未设置 token，服务将以 open 模式启动，仅建议本地调试使用！"
+  exec java -cp "$CP" com.pl.gdl.server.GdlServerApplication --port "$PORT"
+else
+  exec java -cp "$CP" com.pl.gdl.server.GdlServerApplication --port "$PORT" --token "$TOKEN"
 fi
-
-ARGS="--port $PORT"
-if [ -n "$TOKEN" ]; then
-    ARGS="$ARGS --token $TOKEN"
-fi
-
-echo "服务启动参数: $ARGS"
-echo "启动命令: java -cp target/classes:$CP com.pl.gdl.server.GdlServerApplication $ARGS"
-exec java -cp "target/classes:$CP" com.pl.gdl.server.GdlServerApplication $ARGS

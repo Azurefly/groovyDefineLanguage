@@ -12,6 +12,12 @@ public class LimitOperator extends LogicalOperator {
 
     public LimitOperator(LogicalOperator upstream, int offset, int limit) {
         addUpstream(upstream);
+        if (offset < 0) {
+            throw new IllegalArgumentException("offset must be >= 0, but was " + offset);
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be > 0, but was " + limit);
+        }
         this.offset = offset;
         this.limit = limit;
     }

@@ -22,10 +22,39 @@ public final class JdbcConnectionManager implements AutoCloseable {
         return DEFAULT;
     }
 
+    /**
+     * 获取指定数据源的 JDBC 连接（连接池复用）。
+     * <p>
+     * 防密码轮换僵尸池：若当前线程请求的参数（URL/用户名/驱动）与已存在的某个连接池
+     * 完全相同、仅密码不同，说明密码可能已轮换；此时先关闭并移除旧池，再按新密码
+     * 建池，防止旧池继续用过期密码建连接导致持续鉴权失败。
+     */
     public Connection getConnection(JdbcDatasource datasource) throws SQLException {
         Objects.requireNonNull(datasource, "datasource must not be null");
         loadDriver(datasource);
-        return pools.computeIfAbsent(PoolKey.from(datasource), key -> createPool(datasource)).getConnection();
+        PoolKey key = PoolKey.from(datasource);
+        HikariDataSource pool = pools.get(key);
+        if (pool != null) {
+            return pool.getConnection();
+        }
+        // 查找除密码外相同（URL/用户名/驱动）的旧池：密码变化时旧池已无用，先关闭
+        PoolKey rotatedKey = null;
+        for (PoolKey existing : pools.keySet()) {
+            if (existing.url().equals(key.url())
+                    && Objects.equals(existing.username(), key.username())
+                    && Objects.equals(existing.driver(), key.driver())
+                    && !Objects.equals(existing.password(), key.password())) {
+                rotatedKey = existing;
+                break;
+            }
+        }
+        if (rotatedKey != null) {
+            HikariDataSource stale = pools.remove(rotatedKey);
+            if (stale != null) {
+                stale.close();
+            }
+        }
+        return pools.computeIfAbsent(key, k -> createPool(datasource)).getConnection();
     }
 
     public int poolCount() {
@@ -61,7 +90,9 @@ public final class JdbcConnectionManager implements AutoCloseable {
     }
 
     private int maximumPoolSize(String jdbcUrl) {
-        if ("jdbc:sqlite::memory:".equalsIgnoreCase(jdbcUrl)) return 1;
+        // SQLite 内存库（jdbc:sqlite::memory: 或 file::memory:?cache=shared 等）所有连接必须共享
+        // 同一个底层连接才能看到同一份数据，因此池大小固定为 1
+        if (jdbcUrl != null && jdbcUrl.contains(":memory:")) return 1;
         return Math.max(1, Integer.getInteger("gdl.jdbc.pool.maximumPoolSize", 10));
     }
 

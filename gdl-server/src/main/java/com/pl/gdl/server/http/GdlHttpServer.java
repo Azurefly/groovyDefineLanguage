@@ -1,5 +1,6 @@
 package com.pl.gdl.server.http;
 
+import com.pl.gdl.common.exception.OntologyValidationException;
 import com.pl.gdl.common.model.OntoInfoRsp;
 import com.pl.gdl.common.model.RegisterRsp;
 import com.pl.gdl.common.model.TaskResult;
@@ -23,8 +24,24 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
+/**
+ * GDL / TRE 引擎的 HTTP 服务端。
+ *
+ * <p>同时承担两类职责：</p>
+ * <ul>
+ *   <li>基于 JDK 内置 {@code HttpServer} 的物理 socket 监听，对外提供
+ *       {@code /tre/api/*} REST 接口与 {@code /tre/mcp/service} MCP 接口；</li>
+ *   <li>通过 {@link #handleDirect(HttpRequest)} 提供进程内请求分发，
+ *       供 {@link InProcessHttpTransport} 在无法绑定 socket 的受限环境下使用。</li>
+ * </ul>
+ *
+ * <p>除 {@code /tre/api/health} 健康检查外，所有接口默认要求请求头
+ * {@code tre-token} 与配置一致（见 {@link ServerConfig}），否则返回 401。</p>
+ */
 public class GdlHttpServer {
     private static final Logger log = LoggerFactory.getLogger(GdlHttpServer.class);
 
@@ -32,29 +49,52 @@ public class GdlHttpServer {
     private final TreClient treClient;
     private final McpToolRegistry mcpRegistry;
     private HttpServer server;
+    private ExecutorService executor;
     private boolean running = false;
 
+    /** 使用默认配置构造服务端。 */
     public GdlHttpServer() {
         this(new ServerConfig());
     }
 
+    /**
+     * 使用指定配置构造服务端，任务执行使用默认的本地 {@link TreClientImpl}。
+     *
+     * @param config 服务配置，{@code null} 时使用默认配置
+     */
     public GdlHttpServer(ServerConfig config) {
         this(config, new TreClientImpl());
     }
 
+    /**
+     * 使用指定配置与任务客户端构造服务端。
+     *
+     * @param config    服务配置，{@code null} 时使用默认配置
+     * @param treClient 任务执行客户端，{@code null} 时使用默认的本地实现
+     */
     public GdlHttpServer(ServerConfig config, TreClient treClient) {
         this.config = config != null ? config : new ServerConfig();
         this.treClient = treClient != null ? treClient : new TreClientImpl();
         this.mcpRegistry = new McpToolRegistry(this.treClient);
     }
 
+    /**
+     * 启动 HTTP 服务。
+     *
+     * <p>创建 {@code HttpServer} 并绑定配置的地址端口，注册全部接口上下文后开始监听。
+     * 若当前环境不允许绑定 socket（如受限沙箱），会记录警告并退化为仅支持
+     * {@link #handleDirect(HttpRequest)} 的进程内分发模式，但仍标记为运行中。</p>
+     *
+     * @throws IOException 创建 HttpServer 失败时抛出（socket 绑定被拒绝除外）
+     */
     public synchronized void start() throws IOException {
         if (running) return;
 
         try {
             InetSocketAddress address = new InetSocketAddress(config.getHost(), config.getPort());
             this.server = HttpServer.create(address, 0);
-            this.server.setExecutor(Executors.newFixedThreadPool(config.getWorkerThreads()));
+            this.executor = Executors.newFixedThreadPool(config.getWorkerThreads());
+            this.server.setExecutor(this.executor);
 
             server.createContext("/tre/api/health", new HealthHandler());
             server.createContext("/tre/api/getOntologies", new GetOntologiesHandler());
@@ -73,15 +113,46 @@ public class GdlHttpServer {
         this.running = true;
     }
 
+    /**
+     * 停止 HTTP 服务并释放全部资源。
+     *
+     * <p>停止顺序：先停止 {@code HttpServer} 不再接受新请求，再关闭请求处理线程池
+     * （{@code shutdownNow} + 等待终止），最后若任务客户端为 {@link TreClientImpl}
+     * 则关闭其任务后台线程池。</p>
+     */
     public synchronized void stop() {
         if (!running) return;
         if (this.server != null) {
             this.server.stop(0);
         }
+        if (this.executor != null) {
+            this.executor.shutdownNow();
+            try {
+                if (!this.executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    log.warn("HTTP request executor did not terminate within timeout");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted while waiting for HTTP request executor termination");
+            } finally {
+                this.executor = null;
+            }
+        }
+        if (this.treClient instanceof TreClientImpl impl) {
+            impl.close();
+        }
         this.running = false;
         log.info("GDL HTTP Server stopped");
     }
 
+    /**
+     * 返回服务实际监听的端口。
+     *
+     * <p>若已成功绑定 socket，返回 socket 的实际端口；否则返回配置中的端口
+     * （如配置端口为 0 时的自动分配端口在未绑定成功前无法获知）。</p>
+     *
+     * @return 实际监听端口
+     */
     public int getPort() {
         if (server != null) {
             return server.getAddress().getPort();
@@ -89,20 +160,45 @@ public class GdlHttpServer {
         return config.getPort();
     }
 
+    /**
+     * 服务是否处于运行中（包含退化为进程内分发模式的情况）。
+     *
+     * @return 运行中返回 {@code true}
+     */
     public boolean isRunning() {
         return running;
     }
 
+    /**
+     * 返回服务使用的任务执行客户端。
+     *
+     * @return {@link TreClient} 实例
+     */
     public TreClient getTreClient() {
         return treClient;
     }
 
+    /**
+     * 返回服务使用的 MCP 工具注册表。
+     *
+     * @return {@link McpToolRegistry} 实例
+     */
     public McpToolRegistry getMcpRegistry() {
         return mcpRegistry;
     }
 
     // --- Direct In-Process Request Dispatcher ---
 
+    /**
+     * 进程内请求分发入口：不经过 socket，直接按路径路由到各接口逻辑。
+     *
+     * <p>处理流程：健康检查接口直接放行；其余接口先做 token 鉴权
+     * （{@code tre-token} 请求头与配置一致，否则 401），再按路径分发到
+     * 本体注册/查询、任务提交/查询、TSML 转 DAG、MCP 服务等分支。</p>
+     *
+     * @param req 进程内请求
+     * @return 进程内响应
+     */
     public HttpResponse handleDirect(HttpRequest req) {
         String path = req.getPath();
         if (path.contains("?")) {
@@ -164,9 +260,16 @@ public class GdlHttpServer {
                     if (parsed instanceof Map<?, ?> map && map.containsKey("gdl")) {
                         gdlContent = String.valueOf(map.get("gdl"));
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) { log.debug("registerOntology: request body is not JSON, treating as raw GDL content: {}", e.toString()); }
 
-                RegisterRsp regRsp = treClient.registerOntology(gdlContent);
+                // 本体校验失败属于客户端错误，返回 400 而非兜底 500
+                RegisterRsp regRsp;
+                try {
+                    regRsp = treClient.registerOntology(gdlContent);
+                } catch (OntologyValidationException ve) {
+                    log.warn("registerOntology validation failed: {}", ve.getMessage());
+                    return jsonResponse(400, Map.of("code", -1, "msg", ve.getMessage(), "success", false));
+                }
                 Map<String, Object> resp = new LinkedHashMap<>();
                 resp.put("code", regRsp.getStatus() == RegisterRsp.STATUS_SUCCESS ? 0 : -1);
                 resp.put("msg", regRsp.getMessage());
@@ -184,7 +287,7 @@ public class GdlHttpServer {
                     if (parsed instanceof Map<?, ?> map && map.containsKey("names")) {
                         names = String.valueOf(map.get("names"));
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) { log.debug("unregisterOntology: request body is not JSON, treating as raw names: {}", e.toString()); }
 
                 RegisterRsp unregRsp = treClient.unregisterOntology(names);
                 return jsonResponse(200, unregRsp);
@@ -257,7 +360,7 @@ public class GdlHttpServer {
                     if (parsed instanceof Map<?, ?> map && map.containsKey("code")) {
                         code = (String) map.get("code");
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) { log.debug("getTsmlToDag: request body is not JSON, treating as raw GDL code: {}", e.toString()); }
 
                 String dagJson = treClient.getTsmlToDag(code);
                 HttpResponse res = new HttpResponse(200, dagJson);

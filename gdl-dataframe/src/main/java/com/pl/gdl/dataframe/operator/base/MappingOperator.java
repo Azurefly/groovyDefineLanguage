@@ -10,6 +10,9 @@ public class MappingOperator extends LogicalOperator {
     public MappingOperator(LogicalOperator upstream, Map<String, String> mapping) {
         addUpstream(upstream);
         this.mapping = mapping != null ? new LinkedHashMap<>(mapping) : new LinkedHashMap<>();
+        if (this.mapping.isEmpty()) {
+            throw new IllegalArgumentException("mapping must not be empty");
+        }
     }
 
     public Map<String, String> getMapping() { return mapping; }

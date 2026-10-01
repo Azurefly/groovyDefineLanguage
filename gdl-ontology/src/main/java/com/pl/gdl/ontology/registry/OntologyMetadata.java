@@ -4,6 +4,8 @@ import com.pl.gdl.common.model.OntoInfoRsp;
 import com.pl.gdl.ontology.annotation.Column;
 import com.pl.gdl.ontology.annotation.Table;
 import com.pl.gdl.ontology.model.Ontology;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -11,7 +13,12 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 本体元数据：从 {@link Ontology} 子类的注解、字段与方法中抽取表结构与接口信息。
+ */
 public class OntologyMetadata {
+    private static final Logger log = LoggerFactory.getLogger(OntologyMetadata.class);
+
     private final Class<? extends Ontology> ontologyClass;
     private final Table tableAnnotation;
     private final List<FieldMetadata> fields = new ArrayList<>();
@@ -47,6 +54,22 @@ public class OntologyMetadata {
     public List<FieldMetadata> getFields() { return fields; }
     public List<MethodMetadata> getMethods() { return methods; }
 
+    /**
+     * 返回该本体声明的可用地域编码（{@link Ontology#areaCodes}）。
+     *
+     * <p>未声明地域时返回空列表，调用方应将其视作全局可用；
+     * 实例化失败时打 warn 日志并返回空列表。</p>
+     */
+    public List<String> getAreaCodes() {
+        try {
+            Ontology instance = ontologyClass.getDeclaredConstructor().newInstance();
+            return instance.areaCodes == null ? List.of() : new ArrayList<>(instance.areaCodes);
+        } catch (Exception e) {
+            log.warn("无法实例化本体类 {} 以读取地域声明: {}", ontologyClass.getName(), e.toString());
+            return List.of();
+        }
+    }
+
     public OntoInfoRsp toOntoInfoRsp() {
         OntoInfoRsp rsp = new OntoInfoRsp();
         rsp.setClassName(ontologyClass.getSimpleName());
@@ -60,13 +83,14 @@ public class OntologyMetadata {
             rsp.setODesc(instance.oDesc);
             rsp.setOTable(instance.oTable);
             rsp.setOAuthor(instance.oAuthor);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.warn("无法实例化本体类 {} 以抽取实例元数据: {}", ontologyClass.getName(), e.toString());
+        }
 
         List<OntoInfoRsp.OntoField> fieldList = new ArrayList<>();
         for (FieldMetadata fm : fields) {
             String colName = fm.getColumnAnnotation() != null && !fm.getColumnAnnotation().cName().isEmpty()
                     ? fm.getColumnAnnotation().cName() : fm.getFieldName();
-            String dt = fm.getColumnAnnotation() != null ? fm.getColumnAnnotation().dataTypeName() : "string";
             String remarks = fm.getColumnAnnotation() != null ? fm.getColumnAnnotation().remarks() : "";
             fieldList.add(new OntoInfoRsp.OntoField(fm.getFieldName(), colName, remarks));
         }

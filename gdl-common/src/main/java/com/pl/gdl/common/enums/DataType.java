@@ -1,5 +1,13 @@
 package com.pl.gdl.common.enums;
 
+import java.util.Locale;
+
+/**
+ * 引擎支持的标准数据类型。
+ *
+ * <p>{@link #fromString(String)} 在解析类型名时不区分大小写，
+ * 内部使用 {@link Locale#ROOT} 做大小写归一化，保证在任意区域设置下行为一致。</p>
+ */
 public enum DataType {
     VARCHAR("VARCHAR", "string", java.sql.Types.VARCHAR),
     INTEGER("INTEGER", "int", java.sql.Types.INTEGER),
@@ -36,7 +44,7 @@ public enum DataType {
         if (name == null || name.isBlank()) {
             return VARCHAR;
         }
-        String upper = name.trim().toUpperCase();
+        String upper = name.trim().toUpperCase(Locale.ROOT);
         if (upper.startsWith("VARCHAR") || upper.equals("STRING") || upper.equals("TEXT")) {
             return VARCHAR;
         } else if (upper.equals("INT") || upper.equals("INTEGER")) {

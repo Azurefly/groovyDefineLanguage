@@ -1,5 +1,6 @@
 package com.pl.gdl.server;
 
+import com.pl.gdl.common.enums.TaskStatus;
 import com.pl.gdl.common.model.OntoInfoRsp;
 import com.pl.gdl.common.model.RegisterRsp;
 import com.pl.gdl.common.model.TaskResult;
@@ -99,7 +100,7 @@ public class RemoteServiceIntegrationTest {
     }
 
     @Test
-    public void testRemoteTaskExecutionAndResultQuery() {
+    public void testRemoteTaskExecutionAndResultQuery() throws Exception {
         String gdlScript = """
             def hiveDs = hive()
             def df = from(hiveDs, "dw.t_person")
@@ -113,10 +114,24 @@ public class RemoteServiceIntegrationTest {
         assertThat(taskId).isNotNull().isNotBlank();
 
         // 2. Query task result remotely via HTTP GET /tre/api/getTaskResult?taskId=xxx
-        TaskResult result = remoteClient.getTaskResult(taskId);
+        //    任务为异步执行：轮询等待完成
+        TaskResult result = null;
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < deadline) {
+            result = remoteClient.getTaskResult(taskId);
+            if (result != null && TaskStatus.FINISHED.equals(result.getStatus())) {
+                break;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
         assertThat(result).isNotNull();
         assertThat(result.getTaskId()).isEqualTo(taskId);
-        assertThat(result.getStatus()).isEqualTo("FINISHED");
+        assertThat(result.getStatus()).isEqualTo(TaskStatus.FINISHED);
     }
 
     @Test
@@ -173,6 +188,16 @@ public class RemoteServiceIntegrationTest {
         TreClient badClient = new TreRemoteHttpClient(transport, "wrong-token");
 
         assertThatThrownBy(() -> badClient.getOntologies(null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("401");
+    }
+
+    @Test
+    public void testMissingTokenReturns401() {
+        // Client without any token (single-arg constructor) accessing a protected endpoint
+        TreClient noAuthClient = new TreRemoteHttpClient(transport);
+
+        assertThatThrownBy(() -> noAuthClient.getOntologies(null))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("401");
     }

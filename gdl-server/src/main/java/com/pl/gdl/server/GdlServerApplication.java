@@ -11,12 +11,14 @@ public class GdlServerApplication {
     public static void main(String[] args) {
         int port = 8080;
         String token = null;
+        boolean tokenProvided = false;
 
         for (int i = 0; i < args.length; i++) {
             if ("--port".equals(args[i]) && i + 1 < args.length) {
                 port = Integer.parseInt(args[++i]);
             } else if ("--token".equals(args[i]) && i + 1 < args.length) {
                 token = args[++i];
+                tokenProvided = true;
             } else if ("--help".equals(args[i])) {
                 System.out.println("GDL / TRE Engine Server");
                 System.out.println("Usage: java -cp ... com.pl.gdl.server.GdlServerApplication [options]");
@@ -24,11 +26,28 @@ public class GdlServerApplication {
                 System.out.println("  --port <port>    Listen port (default 8080)");
                 System.out.println("  --token <token>  Security token for tre-token verification");
                 System.out.println("  --help           Print help");
+                System.out.println();
+                System.out.println("Security:");
+                System.out.println("  Token authentication is ENABLED by default. All API endpoints except");
+                System.out.println("  /tre/api/health require the 'tre-token' request header to match --token.");
+                System.out.println("  If --token is omitted, the server starts in OPEN mode (no authentication).");
+                System.out.println("  OPEN mode is intended for trusted local/test environments ONLY.");
                 return;
             }
         }
 
         ServerConfig config = new ServerConfig(port, token);
+        if (!tokenProvided) {
+            // 鉴权默认开启；此处用户未提供 token，显式进入开放模式并给出醒目警告
+            log.warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            log.warn("!! SECURITY WARNING: --token not provided.                       !!");
+            log.warn("!! Server is running in OPEN mode WITHOUT authentication.        !!");
+            log.warn("!! Anyone who can reach this port can call all APIs.              !!");
+            log.warn("!! Use --token <token> to enable token authentication.           !!");
+            log.warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            System.err.println("WARNING: --token not provided, server running in OPEN mode without authentication!");
+            config.setRequireToken(false);
+        }
         GdlHttpServer server = new GdlHttpServer(config);
 
         try {

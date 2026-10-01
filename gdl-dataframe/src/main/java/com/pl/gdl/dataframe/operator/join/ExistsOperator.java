@@ -1,12 +1,15 @@
 package com.pl.gdl.dataframe.operator.join;
 
 import com.pl.gdl.dataframe.operator.LogicalOperator;
+import java.util.Objects;
 
 public class ExistsOperator extends LogicalOperator {
     private final boolean not;
     private final String onCondition;
 
     public ExistsOperator(LogicalOperator left, LogicalOperator right, boolean not, String onCondition) {
+        Objects.requireNonNull(left, "left must not be null");
+        Objects.requireNonNull(right, "right must not be null");
         addUpstream(left);
         addUpstream(right);
         this.not = not;

@@ -1,6 +1,7 @@
 package com.pl.gdl.dataframe.operator.join;
 
 import com.pl.gdl.dataframe.operator.LogicalOperator;
+import java.util.Objects;
 
 public class JoinOperator extends LogicalOperator {
     public enum JoinType {
@@ -22,6 +23,8 @@ public class JoinOperator extends LogicalOperator {
     private final String onCondition;
 
     public JoinOperator(LogicalOperator left, LogicalOperator right, JoinType joinType, String onCondition) {
+        Objects.requireNonNull(left, "left must not be null");
+        Objects.requireNonNull(right, "right must not be null");
         addUpstream(left);
         addUpstream(right);
         this.joinType = joinType != null ? joinType : JoinType.INNER;

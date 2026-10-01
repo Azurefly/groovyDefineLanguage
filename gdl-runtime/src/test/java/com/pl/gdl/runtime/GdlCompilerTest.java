@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class GdlCompilerTest {
 
@@ -106,5 +107,72 @@ public class GdlCompilerTest {
         assertThat((Object) rows.getRow(0).getValue("dept.department")).isEqualTo("risk");
         assertThat(result.getContext().getFederatedJoinResults()).hasSize(1);
         assertThat(result.getContext().getExecutionPlans()).hasSize(2);
+    }
+
+    // ---------------- 沙箱测试 ----------------
+
+    @Test
+    public void testSandboxAllowsBenignScript() {
+        GdlCompiler compiler = new GdlCompiler();
+        GdlCompiler.GdlExecutionResult result = compiler.execute("def a = 1\ndef b = a + 2\nb", Map.of());
+        assertThat(result.getScriptResult()).isEqualTo(3);
+    }
+
+    @Test
+    public void testSandboxBlocksSystemExit() {
+        GdlCompiler compiler = new GdlCompiler();
+        assertThatThrownBy(() -> compiler.execute("System.exit(1)", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+    }
+
+    @Test
+    public void testSandboxBlocksExecuteCall() {
+        GdlCompiler compiler = new GdlCompiler();
+        assertThatThrownBy(() -> compiler.execute("\"ls\".execute()", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+    }
+
+    @Test
+    public void testSandboxBlocksExecuteCallViaVariable() {
+        // 变量接收者在 CONVERSION 阶段类型未解析，必须按方法名拦截，不能只看接收者类型
+        GdlCompiler compiler = new GdlCompiler();
+        assertThatThrownBy(() -> compiler.execute("def c = 'ls'\nc.execute()", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+    }
+
+    @Test
+    public void testSandboxBlocksFileAndReflection() {
+        GdlCompiler compiler = new GdlCompiler();
+        assertThatThrownBy(() -> compiler.execute("new File('/tmp/x')", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+        assertThatThrownBy(() -> compiler.execute("Class.forName('java.lang.String')", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+        assertThatThrownBy(() -> compiler.execute("Runtime.getRuntime().exec('ls')", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+        assertThatThrownBy(() -> compiler.execute("def e = evaluate('1+1')", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+    }
+
+    @Test
+    public void testSandboxBlocksNonWhitelistedStarImport() {
+        GdlCompiler compiler = new GdlCompiler();
+        assertThatThrownBy(() -> compiler.execute("import java.io.*\ndef x = 1", Map.of()))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("GDL 沙箱");
+    }
+
+    @Test
+    public void testTrustedModeSkipsSandbox() {
+        // trusted 模式关闭沙箱：沙箱下被禁的方法定义可以正常编译执行
+        GdlCompiler compiler = GdlCompiler.trusted();
+        GdlCompiler.GdlExecutionResult result = compiler.execute("def foo() { 42 }\nfoo()", Map.of());
+        assertThat(result.getScriptResult()).isEqualTo(42);
     }
 }

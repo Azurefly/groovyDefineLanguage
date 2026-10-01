@@ -56,4 +56,46 @@ public class RowDataFrameTest {
         assertThat(DataType.fromString("bigint")).isEqualTo(DataType.BIGINT);
         assertThat(DataType.fromString("timestamp")).isEqualTo(DataType.TIMESTAMP);
     }
+
+    @Test
+    public void testAddRowValueRejectsMismatchedColumnCount() {
+        RowDataFrame df = new RowDataFrame(List.of(
+                new ColumnInfo("id", "int"),
+                new ColumnInfo("name", "string")));
+
+        // 值数量与列数一致：正常追加
+        df.addRowValue(List.of(1, "Alice"));
+        assertThat(df.rowSize()).isEqualTo(1);
+        assertThat((Integer) df.getRow(0).getValue("id")).isEqualTo(1);
+
+        // 值偏多
+        assertThatThrownBy(() -> df.addRowValue(List.of(2, "Bob", "extra")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("3")
+                .hasMessageContaining("2");
+
+        // 值偏少
+        assertThatThrownBy(() -> df.addRowValue(List.of(3)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("1")
+                .hasMessageContaining("2");
+
+        // null 列表
+        assertThatThrownBy(() -> df.addRowValue((List<?>) null))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // 异常不应追加行
+        assertThat(df.rowSize()).isEqualTo(1);
+    }
+
+    @Test
+    public void testColumnInfoEqualsIncludesDataType() {
+        ColumnInfo a = new ColumnInfo("id", "int");
+        ColumnInfo b = new ColumnInfo("id", "int");
+        ColumnInfo c = new ColumnInfo("id", "string");
+
+        assertThat(a).isEqualTo(b);
+        assertThat(a.hashCode()).isEqualTo(b.hashCode());
+        assertThat(a).isNotEqualTo(c);
+    }
 }

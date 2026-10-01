@@ -3,12 +3,15 @@ package com.pl.gdl.dataframe.operator.set;
 import com.pl.gdl.dataframe.operator.LogicalOperator;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class SubtractOperator extends LogicalOperator {
     private final boolean all;
     private final List<String> compareKeys;
 
     public SubtractOperator(LogicalOperator left, LogicalOperator right, boolean all, String... compareKeys) {
+        Objects.requireNonNull(left, "left must not be null");
+        Objects.requireNonNull(right, "right must not be null");
         addUpstream(left);
         addUpstream(right);
         this.all = all;

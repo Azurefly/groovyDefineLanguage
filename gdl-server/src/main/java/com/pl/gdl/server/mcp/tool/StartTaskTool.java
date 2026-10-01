@@ -6,6 +6,12 @@ import com.pl.gdl.server.mcp.McpTool;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * MCP 工具 {@code start_task}：把一段 GDL / TSML 脚本提交到 TRE 引擎执行。
+ *
+ * <p>任务提交为异步：调用后立即返回 taskId，可随后用 {@code get_task_result}
+ * 工具轮询执行结果。</p>
+ */
 public class StartTaskTool implements McpTool {
     private final TreClient treClient;
 
@@ -25,11 +31,13 @@ public class StartTaskTool implements McpTool {
 
     @Override
     public Map<String, Object> getInputSchema() {
+        // 注意：schema 中刻意不包含历史拼写错误的 "bussinessId" 字段——
+        // TreClient#startTask(String, Map) 只接收脚本与 params，下游没有任何逻辑
+        // 使用该字段，保留它只会误导调用方传入无用参数。
         return Map.of(
                 "type", "object",
                 "properties", Map.of(
                         "code", Map.of("type", "string", "description", "GDL script code"),
-                        "bussinessId", Map.of("type", "string", "description", "Business domain ID"),
                         "params", Map.of("type", "string", "description", "Script parameters e.g. key1=val1;key2=val2")
                 ),
                 "required", java.util.List.of("code")

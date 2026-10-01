@@ -7,6 +7,9 @@ public class WhereOperator extends LogicalOperator {
 
     public WhereOperator(LogicalOperator upstream, String condition) {
         addUpstream(upstream);
+        if (condition == null || condition.isBlank()) {
+            throw new IllegalArgumentException("condition must not be blank");
+        }
         this.condition = condition;
     }
 

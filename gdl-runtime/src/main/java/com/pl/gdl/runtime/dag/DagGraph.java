@@ -1,8 +1,22 @@
 package com.pl.gdl.runtime.dag;
 
+import com.pl.gdl.common.exception.GdlCompilationException;
+
 import java.io.Serializable;
 import java.util.*;
 
+/**
+ * GDL 执行计划的有向无环图（DAG）：由 {@link DagNode} 节点与 {@link DagEdge} 边组成，
+ * 描述算子之间的数据依赖关系。
+ *
+ * <p>fail-fast 语义：</p>
+ * <ul>
+ *   <li>{@link #addEdge(String, String)} 引用了尚未 {@link #addNode(DagNode)} 的节点
+ *       （悬空边）时直接抛 {@link IllegalArgumentException}，避免静默产生不可达的边；</li>
+ *   <li>{@link #topologicalSort()} 检测到环时抛 {@link GdlCompilationException}，
+ *       不再静默回退为无序列表。</li>
+ * </ul>
+ */
 public class DagGraph implements Serializable {
     private final Map<String, DagNode> nodes = new LinkedHashMap<>();
     private final List<DagEdge> edges = new ArrayList<>();
@@ -13,12 +27,26 @@ public class DagGraph implements Serializable {
         }
     }
 
+    /**
+     * 添加一条有向边。
+     *
+     * @param sourceNodeId 上游节点 id，必须已通过 {@link #addNode(DagNode)} 加入
+     * @param targetNodeId 下游节点 id，必须已通过 {@link #addNode(DagNode)} 加入
+     * @throws IllegalArgumentException 任一端点引用了图中不存在的节点（悬空边）时抛出
+     */
     public void addEdge(String sourceNodeId, String targetNodeId) {
-        if (sourceNodeId != null && targetNodeId != null) {
-            DagEdge edge = new DagEdge(sourceNodeId, targetNodeId);
-            if (!edges.contains(edge)) {
-                edges.add(edge);
-            }
+        if (sourceNodeId == null || targetNodeId == null) {
+            return;
+        }
+        if (!nodes.containsKey(sourceNodeId)) {
+            throw new IllegalArgumentException("悬空边：源节点 [" + sourceNodeId + "] 尚未通过 addNode 加入图中");
+        }
+        if (!nodes.containsKey(targetNodeId)) {
+            throw new IllegalArgumentException("悬空边：目标节点 [" + targetNodeId + "] 尚未通过 addNode 加入图中");
+        }
+        DagEdge edge = new DagEdge(sourceNodeId, targetNodeId);
+        if (!edges.contains(edge)) {
+            edges.add(edge);
         }
     }
 
@@ -34,6 +62,12 @@ public class DagGraph implements Serializable {
         return Collections.unmodifiableList(edges);
     }
 
+    /**
+     * Kahn 算法拓扑排序。
+     *
+     * @return 按依赖顺序排列的节点
+     * @throws GdlCompilationException 图中存在环、无法拓扑排序时抛出
+     */
     public List<DagNode> topologicalSort() {
         Map<String, Integer> inDegree = new HashMap<>();
         Map<String, List<String>> adj = new HashMap<>();
@@ -68,8 +102,7 @@ public class DagGraph implements Serializable {
         }
 
         if (sorted.size() != nodes.size()) {
-            // Cycle fallback
-            return new ArrayList<>(nodes.values());
+            throw new GdlCompilationException("DAG 存在环，无法完成拓扑排序");
         }
         return sorted;
     }

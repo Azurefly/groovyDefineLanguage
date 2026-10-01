@@ -5,6 +5,13 @@ import java.io.Serializable;
 import java.util.*;
 import java.util.function.Consumer;
 
+/**
+ * 基于 {@link Row} 的内存数据框：携带列定义（{@link ColumnInfo}）与行数据。
+ *
+ * <p>{@link #addRowValue(List)} 要求值列表与列定义一一对应：
+ * 传入 null 列表或值个数与列数不一致时抛出 {@link IllegalArgumentException}，
+ * 不会静默截断或缺列。</p>
+ */
 public class RowDataFrame implements Iterable<Row>, Serializable {
     private List<ColumnInfo> columns;
     private final List<Row> rows;
@@ -30,12 +37,25 @@ public class RowDataFrame implements Iterable<Row>, Serializable {
         }
     }
 
+    /**
+     * 按列顺序追加一行数据。
+     *
+     * @param values 与列定义一一对应的值列表，个数必须等于列数
+     * @throws IllegalArgumentException 当 values 为 null，或值个数与列数不一致时
+     */
     public void addRowValue(List<?> values) {
+        if (values == null) {
+            throw new IllegalArgumentException(
+                    "Row values must not be null, expected column count: " + columns.size());
+        }
+        if (values.size() != columns.size()) {
+            throw new IllegalArgumentException(
+                    "Row values count mismatch: actual=" + values.size()
+                            + ", expected column count=" + columns.size());
+        }
         Row row = new Row();
-        if (values != null) {
-            for (int i = 0; i < values.size() && i < columns.size(); i++) {
-                row.setValue(columns.get(i).getColumnName(), values.get(i));
-            }
+        for (int i = 0; i < values.size(); i++) {
+            row.setValue(columns.get(i).getColumnName(), values.get(i));
         }
         rows.add(row);
     }

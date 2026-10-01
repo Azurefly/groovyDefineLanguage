@@ -9,7 +9,7 @@ public class HiveSqlDialect implements SqlDialect {
     @Override
     public String quoteIdentifier(String name) {
         if (name == null) return "";
-        return "`" + name.replace("`", "") + "`";
+        return "`" + name.replace("`", "``") + "`";
     }
 
     @Override
@@ -27,7 +27,14 @@ public class HiveSqlDialect implements SqlDialect {
 
     @Override
     public String formatConcatWs(String delimiter, String expression) {
-        return "concat_ws('" + delimiter + "', sort_array(collect_list(" + expression + ")))";
+        return "concat_ws('" + escapeStringLiteral(delimiter) + "', sort_array(collect_list(" + expression + ")))";
+    }
+
+    /**
+     * SQL 字符串字面量转义：单引号 doubling。
+     */
+    private static String escapeStringLiteral(String value) {
+        return value == null ? "" : value.replace("'", "''");
     }
 
     @Override

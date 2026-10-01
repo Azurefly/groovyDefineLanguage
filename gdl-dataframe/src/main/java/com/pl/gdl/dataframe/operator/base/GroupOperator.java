@@ -8,6 +8,9 @@ public class GroupOperator extends LogicalOperator {
 
     public GroupOperator(LogicalOperator upstream, String groupByCols, String aggregateExprs) {
         addUpstream(upstream);
+        if ((groupByCols == null || groupByCols.isBlank()) && (aggregateExprs == null || aggregateExprs.isBlank())) {
+            throw new IllegalArgumentException("groupByCols and aggregateExprs must not both be blank");
+        }
         this.groupByCols = groupByCols;
         this.aggregateExprs = aggregateExprs;
     }

@@ -19,6 +19,25 @@ import groovy.lang.Closure;
 
 import java.util.*;
 
+/**
+ * {@link CmdDataframe} 的默认实现：包装一个 {@link LogicalOperator} 算子链节点，并持有执行引擎。
+ * <p>
+ * 链式调用的返回语义分为两类，调用时需注意：
+ * <ul>
+ *   <li><b>返回新实例</b>：当前节点保持不变，返回包装了新算子的全新实例。
+ *       包括 {@code alias / where / select / mapping / withColumn / group / sort /
+ *       distributeSort / limit / distinct / groupSortFirst / union / unionAll /
+ *       subtract / subtractAll / intersect / intersectAll / join / leftJoin /
+ *       rightJoin / fullJoin / exists / notExists / to / overwriteTo /
+ *       tumbleWindow / hopWindow / cumulateWindow / periodReactor / increment /
+ *       llmCall / groovy}，
+ *       以及当前算子不是 {@code SortOperator} 时的 {@code index}。</li>
+ *   <li><b>原地修改并返回 this</b>：直接改动当前节点持有的算子，返回同一实例。
+ *       包括 {@code nodeId / depend / fields / ttl / overwrite() /
+ *       overwrite(partitionSpec) / partition / upsert / view}，
+ *       以及当前算子已经是 {@code SortOperator} 时的 {@code index}。</li>
+ * </ul>
+ */
 public class CmdDataframeImpl implements CmdDataframe {
     private final LogicalOperator operator;
     private ExecutionEngine executionEngine;

@@ -1,5 +1,7 @@
 package com.pl.gdl.drift.model;
 
+import com.pl.gdl.common.constant.GdlConstants;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -15,7 +17,7 @@ public class DriftPlan implements Serializable {
 
     public DriftPlan(String originalScript, String localAreaCode) {
         this.originalScript = originalScript;
-        this.localAreaCode = localAreaCode != null ? localAreaCode : "local";
+        this.localAreaCode = localAreaCode != null ? localAreaCode : GdlConstants.DEFAULT_AREA_CODE;
     }
 
     public String getOriginalScript() { return originalScript; }

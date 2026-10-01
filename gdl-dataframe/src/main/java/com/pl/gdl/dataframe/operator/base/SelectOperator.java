@@ -10,6 +10,9 @@ public class SelectOperator extends LogicalOperator {
     public SelectOperator(LogicalOperator upstream, String... expressions) {
         addUpstream(upstream);
         this.expressions = expressions != null ? Arrays.asList(expressions) : List.of();
+        if (this.expressions.isEmpty()) {
+            throw new IllegalArgumentException("expressions must not be empty");
+        }
     }
 
     public List<String> getExpressions() { return expressions; }

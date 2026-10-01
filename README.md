@@ -1,5 +1,10 @@
 # GroovyDefine Language (GDL) Engine
 
+[![CI](https://github.com/Azurefly/groovyDefineLanguage/actions/workflows/ci.yml/badge.svg)](https://github.com/Azurefly/groovyDefineLanguage/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Java](https://img.shields.io/badge/Java-17-orange.svg)](https://openjdk.org/projects/jdk/17/)
+[![Groovy](https://img.shields.io/badge/Groovy-4.0-green.svg)](https://groovy-lang.org/)
+
 GDL（GroovyDefine Language）是基于 Groovy 语法的领域特定模型语言（DSL），运行在 TRE（TaoSha Runtime Engine）分布式规则与计算引擎中。
 它提供流批一体的数据建模、ETL 编排、面向业务的本体（Ontology）建模、跨数据中心漂移（Drift）以及可扩展多数据源访问能力。
 
@@ -77,6 +82,7 @@ Execution
 - **流计算窗口**：`tumbleWindow`, `hopWindow`, `cumulateWindow`
 - **调度信号量**：`periodReactor`, `taskReactor`, `increment`
 - **高级算子**：`http`（支持 GET/POST/分页/认证/`REF{}`动态取值）、`llmCall`、`groovy` 自定义闭包、`python` 脚本、`CustomProcess` 自定义扩展
+  - 安全说明：`groovy` 脚本默认在沙箱中编译执行（import 白名单、禁止 `System.exit`/`Runtime.exec`/`.execute()`/文件类等危险调用），`GdlCompiler.trusted()` 仅限受信任环境使用
 
 ### 2. 动态变量生成器
 通过 `variable("生成器名称", 参数Map)` 动态求值：
@@ -102,6 +108,7 @@ Execution
 
 ### 5. 第三方远程调用与服务化支持
 - **独立 HTTP 服务**：内置高可用 HTTP 服务，通过 `./bin/start-server.sh <port> [token]` 启动
+  - 安全默认：鉴权默认开启。启动时传入 `token` 即启用鉴权（请求头 `tre-token`）；未传 `token` 则进入 open 模式并打印醒目警告，仅建议本地调试使用
 - **Java 远程 SDK**：提供 `TreRemoteHttpClient` 实现透明 RPC 远程调用
 - **HTTP RESTful API**：支持各类第三方系统（Python, Go, Node.js 等）通过 HTTP 接口触发任务计算、查询结果与注册本体
 - **MCP 协议支持**：支持 Model Context Protocol，暴露 `start_task`、`get_task_result`、`get_tsml_to_dag` 工具方法，方便 AI Agent / 大模型客户端（CherryStudio、Claude、Dify 等）直接调度与可视化
