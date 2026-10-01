@@ -30,3 +30,5 @@ Thumbs.db
 .claude/
 *.tmp
 *.bak
+*.bundle
+sources.txt

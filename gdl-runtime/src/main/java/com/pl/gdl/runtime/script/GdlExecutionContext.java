@@ -7,11 +7,13 @@ import com.pl.gdl.dataframe.datasource.CmdDatasource;
 import com.pl.gdl.dataframe.datasource.DatasourceRegistry;
 import com.pl.gdl.dataframe.engine.ExecutionEngine;
 import com.pl.gdl.dataframe.engine.InMemoryEngine;
+import com.pl.gdl.dataframe.operator.LogicalOperator;
 import com.pl.gdl.dataframe.operator.advanced.GroovyCustomOperator;
 import com.pl.gdl.dataframe.operator.advanced.HttpOperator;
 import com.pl.gdl.dataframe.operator.base.FromOperator;
 import com.pl.gdl.dataframe.operator.base.InsertOperator;
 import com.pl.gdl.dataframe.operator.base.QueryOperator;
+import com.pl.gdl.dataframe.operator.output.ToOperator;
 import com.pl.gdl.dataframe.operator.realtime.PeriodReactorOperator;
 import com.pl.gdl.dataframe.operator.realtime.TaskReactorOperator;
 import com.pl.gdl.runtime.dag.DagGraph;
@@ -46,11 +48,28 @@ public class GdlExecutionContext {
         this.executionEngine = new InMemoryEngine();
         this.datasourceRegistry = DatasourceRegistry.getDefault();
         this.executionPlanner = new DatasourceExecutionPlanner();
+        LogicalOperator.setGlobalListener(this::recordOperator);
     }
 
-    public static GdlExecutionContext get() { return CURRENT.get(); }
-    public static void set(GdlExecutionContext context) { CURRENT.set(context); }
-    public static void clear() { CURRENT.remove(); }
+    public static GdlExecutionContext get() {
+        GdlExecutionContext ctx = CURRENT.get();
+        LogicalOperator.setGlobalListener(ctx::recordOperator);
+        return ctx;
+    }
+
+    public static void set(GdlExecutionContext context) {
+        CURRENT.set(context);
+        if (context != null) {
+            LogicalOperator.setGlobalListener(context::recordOperator);
+        } else {
+            LogicalOperator.setGlobalListener(null);
+        }
+    }
+
+    public static void clear() {
+        LogicalOperator.setGlobalListener(null);
+        CURRENT.remove();
+    }
 
     public ExecutionEngine getExecutionEngine() { return executionEngine; }
     public void setExecutionEngine(ExecutionEngine executionEngine) { this.executionEngine = executionEngine; }
@@ -62,6 +81,7 @@ public class GdlExecutionContext {
     public void setExecutionPlanner(DatasourceExecutionPlanner executionPlanner) {
         this.executionPlanner = executionPlanner != null ? executionPlanner : new DatasourceExecutionPlanner();
     }
+
     public List<ExecutionPlan> getExecutionPlans() { return Collections.unmodifiableList(executionPlans); }
     public List<FederatedJoinResult> getFederatedJoinResults() { return Collections.unmodifiableList(federatedJoinResults); }
     public DagGraph getDagGraph() { return dagGraph; }
@@ -78,32 +98,66 @@ public class GdlExecutionContext {
     public CmdDataframe getReturnDf() { return returnDf; }
     public void setReturnDf(CmdDataframe returnDf) { this.returnDf = returnDf; }
 
+    public void recordOperator(LogicalOperator op) {
+        if (op == null || op.getNodeId() == null) return;
+        String id = op.getNodeId();
+        String label = op.getOperatorName();
+        String type = "operator";
+
+        if (op instanceof FromOperator fromOp) {
+            label = "from " + fromOp.getTableName();
+            type = "table";
+        } else if (op instanceof ToOperator toOp) {
+            label = "to " + toOp.getTargetTableName();
+            type = "table";
+        } else if (op instanceof QueryOperator) {
+            type = "query";
+        } else if (op instanceof InsertOperator) {
+            type = "insert";
+        }
+
+        DagNode node = new DagNode(id, label, op.getClass().getSimpleName(), type);
+        node.setAreaCode(op.getAreaCode());
+        dagGraph.addNode(node);
+
+        for (LogicalOperator up : op.getUpstream()) {
+            if (up.getNodeId() != null && !up.getNodeId().equals(id)) {
+                dagGraph.addEdge(up.getNodeId(), id);
+            }
+        }
+        for (LogicalOperator dep : op.getDependencies()) {
+            if (dep.getNodeId() != null && !dep.getNodeId().equals(id)) {
+                dagGraph.addEdge(dep.getNodeId(), id);
+            }
+        }
+    }
+
     public CmdDataframe createFrom(CmdDatasource ds, String table) {
         FromOperator op = new FromOperator(ds, table);
-        String nodeId = "node_" + (nodeSequence++);
-        op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
         ExecutionPlan plan = plan(ds, ExecutionIntent.READ);
-        dagGraph.addNode(datasourceNode(nodeId, "from " + table, "FromOperator", "table", ds, plan));
+        if (op.getNodeId() != null) {
+            dagGraph.addNode(datasourceNode(op.getNodeId(), "from " + table, "FromOperator", "table", ds, plan));
+        }
         return new CmdDataframeImpl(op, plan.engine());
     }
 
     public CmdDataframe createQuery(CmdDatasource ds, String sql) {
         QueryOperator op = new QueryOperator(ds, sql);
-        String nodeId = "node_" + (nodeSequence++);
-        op.setNodeId(nodeId);
         registerTempTable(op.getTempTableName());
         ExecutionPlan plan = plan(ds, ExecutionIntent.SQL_READ);
-        dagGraph.addNode(datasourceNode(nodeId, "query", "QueryOperator", "query", ds, plan));
+        if (op.getNodeId() != null) {
+            dagGraph.addNode(datasourceNode(op.getNodeId(), "query", "QueryOperator", "query", ds, plan));
+        }
         return new CmdDataframeImpl(op, plan.engine());
     }
 
     public CmdDataframe createInsert(CmdDatasource ds, String targetTable, String sql) {
         InsertOperator op = new InsertOperator(ds, targetTable, sql);
-        String nodeId = "node_" + (nodeSequence++);
-        op.setNodeId(nodeId);
         ExecutionPlan plan = plan(ds, ExecutionIntent.SQL_WRITE);
-        dagGraph.addNode(datasourceNode(nodeId, "insert " + targetTable, "InsertOperator", "insert", ds, plan));
+        if (op.getNodeId() != null) {
+            dagGraph.addNode(datasourceNode(op.getNodeId(), "insert " + targetTable, "InsertOperator", "insert", ds, plan));
+        }
         return new CmdDataframeImpl(op, plan.engine());
     }
 
@@ -144,33 +198,20 @@ public class GdlExecutionContext {
 
     public CmdDataframe createPeriodReactor(String cronExpr) {
         PeriodReactorOperator op = new PeriodReactorOperator(cronExpr);
-        String nodeId = "node_" + (nodeSequence++);
-        op.setNodeId(nodeId);
-        dagGraph.addNode(new DagNode(nodeId, "periodReactor", "PeriodReactorOperator", "signal"));
         return new CmdDataframeImpl(op, executionEngine);
     }
 
     public CmdDataframe createTaskReactor(List<String> taskIds, int successRate, int delaySec) {
         TaskReactorOperator op = new TaskReactorOperator(taskIds, successRate, delaySec);
-        String nodeId = "node_" + (nodeSequence++);
-        op.setNodeId(nodeId);
-        dagGraph.addNode(new DagNode(nodeId, "taskReactor", "TaskReactorOperator", "signal"));
         return new CmdDataframeImpl(op, executionEngine);
     }
 
     public HttpOperator createHttp(String method, String url) {
-        HttpOperator op = new HttpOperator(method, url);
-        String nodeId = "node_" + (nodeSequence++);
-        op.setNodeId(nodeId);
-        dagGraph.addNode(new DagNode(nodeId, "http " + method, "HttpOperator", "http"));
-        return op;
+        return new HttpOperator(method, url);
     }
 
     public CmdDataframe createGroovy(Closure<RowDataFrame> closure) {
         GroovyCustomOperator op = new GroovyCustomOperator(closure);
-        String nodeId = "node_" + (nodeSequence++);
-        op.setNodeId(nodeId);
-        dagGraph.addNode(new DagNode(nodeId, "groovy", "GroovyCustomOperator", "script"));
         return new CmdDataframeImpl(op, executionEngine);
     }
 
