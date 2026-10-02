@@ -151,4 +151,52 @@ public class NewFeaturesTest {
         // uncache 后重新计算，结果一致
         assertThat(df.collect().rowSize()).isEqualTo(100);
     }
+
+    @Test
+    public void testPivot() {
+        InMemoryEngine engine = new InMemoryEngine();
+        RowDataFrame df = new RowDataFrame(List.of(
+                new ColumnInfo("id", "INT"),
+                new ColumnInfo("quarter", "STRING"),
+                new ColumnInfo("amount", "DOUBLE")));
+        df.addRowValue(List.of(1, "Q1", 100.0));
+        df.addRowValue(List.of(1, "Q2", 200.0));
+        df.addRowValue(List.of(2, "Q1", 150.0));
+        df.addRowValue(List.of(2, "Q2", 250.0));
+        engine.registerTable("t_pivot", df);
+
+        CmdDataframe cdf = new CmdDataframeImpl(
+                new FromOperator(new HiveDatasource(), "t_pivot"), engine);
+        RowDataFrame result = cdf.pivot("quarter", "amount", "SUM", "id").collect();
+
+        assertThat(result.rowSize()).isEqualTo(2);
+        // 验证列名包含 Q1, Q2
+        boolean hasQ1 = false, hasQ2 = false;
+        for (ColumnInfo col : result.getColumns()) {
+            if ("Q1".equals(col.getColumnName())) hasQ1 = true;
+            if ("Q2".equals(col.getColumnName())) hasQ2 = true;
+        }
+        assertThat(hasQ1).isTrue();
+        assertThat(hasQ2).isTrue();
+
+        // 验证 id=1 的 Q1=100, Q2=200
+        for (int i = 0; i < result.rowSize(); i++) {
+            Object idVal = result.getRow(i).getValue("id");
+            if (idVal != null && ((Number) idVal).intValue() == 1) {
+                assertThat(((Number) result.getRow(i).getValue("Q1")).doubleValue()).isEqualTo(100.0);
+                assertThat(((Number) result.getRow(i).getValue("Q2")).doubleValue()).isEqualTo(200.0);
+            }
+        }
+    }
+
+    @Test
+    public void testPivotInvalidArgs() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine);
+
+        assertThatThrownBy(() -> df.pivot("", "amount", "SUM", "id"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> df.pivot("quarter", "", "SUM", "id"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

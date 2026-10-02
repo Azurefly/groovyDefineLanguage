@@ -191,6 +191,11 @@ public class CmdDataframeImpl implements CmdDataframe {
     }
 
     @Override
+    public CmdDataframe pivot(String pivotColumn, String valueColumn, String aggFunction, String... groupByColumns) {
+        return new CmdDataframeImpl(new PivotOperator(operator, pivotColumn, valueColumn, aggFunction, groupByColumns), executionEngine);
+    }
+
+    @Override
     public CmdDataframe groupSortFirst(String groupCols, String sortCols) {
         return new CmdDataframeImpl(new GroupSortFirstOperator(operator, groupCols, sortCols), executionEngine);
     }

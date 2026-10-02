@@ -34,6 +34,7 @@ public interface CmdDataframe {
     CmdDataframe sample(double fraction);
     CmdDataframe validate(String condition, String message);
     CmdDataframe describe();
+    CmdDataframe pivot(String pivotColumn, String valueColumn, String aggFunction, String... groupByColumns);
     CmdDataframe groupSortFirst(String groupCols, String sortCols);
 
     // Set Operations

@@ -84,6 +84,78 @@ public class InMemoryEngine implements ExecutionEngine {
     }
 
     /**
+     * 透视表：行转列。使用 CASE WHEN + 聚合实现。
+     */
+    private RowDataFrame pivotData(RowDataFrame input,
+            com.pl.gdl.dataframe.operator.base.PivotOperator pivotOp) {
+        if (input.rowSize() == 0) {
+            return new RowDataFrame();
+        }
+        String tableName = "__pivot_" + System.nanoTime();
+        registerTable(tableName, input);
+        try (java.sql.Connection conn = dataSource.getConnection();
+             java.sql.Statement stmt = conn.createStatement()) {
+            // 获取透视列的唯一值
+            java.util.List<String> pivotValues = new java.util.ArrayList<>();
+            try (java.sql.ResultSet rs = stmt.executeQuery(
+                    "SELECT DISTINCT " + pivotOp.getPivotColumn() + " FROM " + tableName +
+                    " WHERE " + pivotOp.getPivotColumn() + " IS NOT NULL ORDER BY 1")) {
+                while (rs.next()) {
+                    pivotValues.add(rs.getString(1));
+                }
+            }
+
+            // 构建透视 SQL
+            StringBuilder sql = new StringBuilder("SELECT ");
+            java.util.List<String> groupCols = pivotOp.getGroupByColumns();
+            if (!groupCols.isEmpty()) {
+                sql.append(String.join(", ", groupCols)).append(", ");
+            }
+            for (int i = 0; i < pivotValues.size(); i++) {
+                if (i > 0) sql.append(", ");
+                String pv = pivotValues.get(i).replace("'", "''");
+                String alias = pivotValues.get(i).replaceAll("[^a-zA-Z0-9_]", "_");
+                sql.append(pivotOp.getAggFunction())
+                   .append("(CASE WHEN ").append(pivotOp.getPivotColumn())
+                   .append(" = '").append(pv).append("' THEN ")
+                   .append(pivotOp.getValueColumn()).append(" END) AS \"").append(alias).append("\"");
+            }
+            sql.append(" FROM ").append(tableName);
+            if (!groupCols.isEmpty()) {
+                sql.append(" GROUP BY ").append(String.join(", ", groupCols));
+            }
+
+            try (java.sql.ResultSet rs = stmt.executeQuery(sql.toString())) {
+                java.sql.ResultSetMetaData md = rs.getMetaData();
+                int cols = md.getColumnCount();
+                java.util.List<com.pl.gdl.common.model.ColumnInfo> columns = new java.util.ArrayList<>();
+                for (int i = 1; i <= cols; i++) {
+                    columns.add(new com.pl.gdl.common.model.ColumnInfo(
+                            md.getColumnLabel(i), md.getColumnTypeName(i)));
+                }
+                RowDataFrame result = new RowDataFrame(columns);
+                while (rs.next()) {
+                    com.pl.gdl.common.model.Row row = new com.pl.gdl.common.model.Row();
+                    for (int i = 1; i <= cols; i++) {
+                        row.setValue(md.getColumnLabel(i), rs.getObject(i));
+                    }
+                    result.addRow(row);
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("透视表执行失败: " + e.getMessage(), e);
+        } finally {
+            try (java.sql.Connection conn = dataSource.getConnection();
+                 java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute("DROP TABLE IF EXISTS " + tableName);
+            } catch (Exception ignored) {
+            }
+            inMemoryTables.remove(tableName.toLowerCase(java.util.Locale.ROOT));
+        }
+    }
+
+    /**
      * 数据探查：为每列生成统计信息行。
      */
     private RowDataFrame describeData(RowDataFrame input) {
@@ -361,6 +433,11 @@ public class InMemoryEngine implements ExecutionEngine {
         if (operator instanceof com.pl.gdl.dataframe.operator.base.DescribeOperator describeOp) {
             RowDataFrame input = !describeOp.getUpstream().isEmpty() ? execute(describeOp.getUpstream().get(0)) : new RowDataFrame();
             return describeData(input);
+        }
+
+        if (operator instanceof com.pl.gdl.dataframe.operator.base.PivotOperator pivotOp) {
+            RowDataFrame input = !pivotOp.getUpstream().isEmpty() ? execute(pivotOp.getUpstream().get(0)) : new RowDataFrame();
+            return pivotData(input, pivotOp);
         }
 
         if (operator instanceof FromOperator fromOp) {
