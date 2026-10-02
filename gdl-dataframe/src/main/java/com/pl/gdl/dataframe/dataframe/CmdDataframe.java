@@ -32,6 +32,7 @@ public interface CmdDataframe {
     CmdDataframe distinct(String... cols);
     CmdDataframe sample(int n);
     CmdDataframe sample(double fraction);
+    CmdDataframe validate(String condition, String message);
     CmdDataframe groupSortFirst(String groupCols, String sortCols);
 
     // Set Operations

@@ -84,6 +84,44 @@ public class InMemoryEngine implements ExecutionEngine {
     }
 
     /**
+     * 数据质量检查：在内存表中执行条件查询，统计不满足条件的行数。
+     * 使用 H2 SQL 的 NOT (condition) 来找出违规行。
+     */
+    private void validateDataQuality(RowDataFrame input,
+            com.pl.gdl.dataframe.operator.base.ValidateOperator validateOp) {
+        if (input.rowSize() == 0) {
+            return;
+        }
+        String tableName = "__validate_" + System.nanoTime();
+        registerTable(tableName, input);
+        try {
+            String sql = "SELECT COUNT(*) FROM " + tableName + " WHERE NOT (" + validateOp.getCondition() + ")";
+            try (java.sql.Connection conn = dataSource.getConnection();
+                 java.sql.Statement stmt = conn.createStatement();
+                 java.sql.ResultSet rs = stmt.executeQuery(sql)) {
+                if (rs.next()) {
+                    long violations = rs.getLong(1);
+                    if (violations > 0) {
+                        throw new com.pl.gdl.dataframe.operator.base.DataQualityException(
+                                validateOp.getMessage(), violations);
+                    }
+                }
+            } catch (com.pl.gdl.dataframe.operator.base.DataQualityException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RuntimeException("数据质量检查执行失败: " + e.getMessage(), e);
+            }
+        } finally {
+            try (java.sql.Connection conn = dataSource.getConnection();
+                 java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute("DROP TABLE IF EXISTS " + tableName);
+            } catch (Exception ignored) {
+            }
+            inMemoryTables.remove(tableName.toLowerCase(java.util.Locale.ROOT));
+        }
+    }
+
+    /**
      * 将 ColumnInfo 的数据类型名映射为 H2 SQL 类型。
      * 未知类型默认 VARCHAR(500)，保证兼容性。
      */
@@ -245,6 +283,12 @@ public class InMemoryEngine implements ExecutionEngine {
             if (groovyOp.getClosure() != null) {
                 return groovyOp.getClosure().call(input);
             }
+            return input;
+        }
+
+        if (operator instanceof com.pl.gdl.dataframe.operator.base.ValidateOperator validateOp) {
+            RowDataFrame input = !validateOp.getUpstream().isEmpty() ? execute(validateOp.getUpstream().get(0)) : new RowDataFrame();
+            validateDataQuality(input, validateOp);
             return input;
         }
 

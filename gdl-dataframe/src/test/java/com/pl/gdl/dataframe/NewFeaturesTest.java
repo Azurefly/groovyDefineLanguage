@@ -77,4 +77,35 @@ public class NewFeaturesTest {
         String sql2 = engine.toSql(df2.getOperator());
         assertThat(sql2).contains("RAND() < 0.1");
     }
+
+    @Test
+    public void testValidatePass() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine);
+
+        // 所有 amount > 0，检查通过，返回原数据
+        RowDataFrame result = df.validate("amount > 0", "金额必须为正数").collect();
+        assertThat(result.rowSize()).isEqualTo(100);
+    }
+
+    @Test
+    public void testValidateFail() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine);
+
+        // amount 最大为 1000，检查 amount > 2000 应失败
+        assertThatThrownBy(() -> df.validate("amount > 2000", "金额必须大于2000").collect())
+                .isInstanceOf(com.pl.gdl.dataframe.operator.base.DataQualityException.class)
+                .hasMessageContaining("金额必须大于2000")
+                .hasMessageContaining("违规行数: 100");
+    }
+
+    @Test
+    public void testValidateInvalidArgs() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine);
+
+        assertThatThrownBy(() -> df.validate("", "msg")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> df.validate(null, "msg")).isInstanceOf(IllegalArgumentException.class);
+    }
 }
