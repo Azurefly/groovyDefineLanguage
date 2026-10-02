@@ -6,8 +6,10 @@ import com.pl.gdl.common.model.Row;
 import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.common.util.SqlSanitizer;
 import com.pl.gdl.dataframe.dialect.H2SqlDialect;
+import com.pl.gdl.dataframe.llm.LlmCallExecutor;
 import com.pl.gdl.dataframe.operator.LogicalOperator;
 import com.pl.gdl.dataframe.operator.advanced.GroovyCustomOperator;
+import com.pl.gdl.dataframe.operator.advanced.LlmCallOperator;
 import com.pl.gdl.dataframe.operator.base.FromOperator;
 import org.h2.jdbcx.JdbcDataSource;
 
@@ -122,6 +124,11 @@ public class InMemoryEngine implements ExecutionEngine {
 
     @Override
     public RowDataFrame execute(LogicalOperator operator) {
+        if (operator instanceof LlmCallOperator llmOp) {
+            RowDataFrame input = !llmOp.getUpstream().isEmpty() ? execute(llmOp.getUpstream().get(0)) : new RowDataFrame();
+            return new LlmCallExecutor().execute(llmOp, input);
+        }
+
         if (operator instanceof GroovyCustomOperator groovyOp) {
             RowDataFrame input = !groovyOp.getUpstream().isEmpty() ? execute(groovyOp.getUpstream().get(0)) : new RowDataFrame();
             if (groovyOp.getClosure() != null) {
