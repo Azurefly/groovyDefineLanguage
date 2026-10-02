@@ -87,6 +87,8 @@ Execution
 
 ### 1. 算子流水线体系
 - **基础算子**：`from`, `where`, `select`, `mapping`, `withColumn`, `group`, `sort`, `index`, `limit`, `distinct`, `distributeSort`, `groupSortFirst`, `alias`, `nodeId`, `depend`
+- **采样与探查**：`sample(n)`/`sample(fraction)` 随机采样、`describe()` 数据探查统计、`validate(condition, message)` 数据质量检查、`pivot()` 行转列透视表
+- **缓存**：`cache()`/`uncache()`/`isCached()` 显式缓存中间结果
 - **集合算子**：`union`, `unionAll`, `subtract`, `subtractAll`, `intersect`, `intersectAll`
 - **关联算子**：`join`, `leftJoin`, `rightJoin`, `fullJoin`, `exists`, `notExists`
 - **输出算子**：`to`, `overwriteTo`, `fields`, `ttl`, `overwrite`, `partition`, `upsert`, `view`
