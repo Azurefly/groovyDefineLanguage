@@ -65,12 +65,14 @@ Execution
 | SQLite | ✅ | ✅ 实测 | ✅ 实测 | ✅ 实测 | Pushdown | ✅ 实测 | 文件或 `:memory:` |
 | PostgreSQL | ✅ | ✅ 实测 | ✅ 实测 | ✅ 实测 | Pushdown | 架构支持 | 真实 PG 14 Server 验证通过（建表/查询/健康检查/元数据） |
 | MySQL | ✅ | 待真实 Server | 待真实 Server | 优雅降级已测 | Pushdown | 架构支持 | Provider/URL/方言已测；嵌入式测试在 CI 执行 |
-| Hive | ✅ | Docker 实测* | — | 待专用实现 | Fallback | 待扩展 | 保持既有 Hive 兼容 |
+| Hive | ✅ | ✅ 实测 | — | ✅ 实测 | Fallback | 待扩展 | HiveServer2 JDBC 真实验证通过 |
 | LLM | ✅ | N/A | — | 待专用实现 | 专用路径 | N/A | 非关系型远程能力 |
 
-> *Hive 说明：互联网上没有公开的 Hive 测试服务。`RealHiveTest` 验证 Provider 构造、能力声明与 Hive 方言 SQL 生成；
-> 真实 HiveServer2 验证用 Docker 官方镜像：`docker run -d -p 10000:10000 --env SERVICE_NAME=hiveserver2 apache/hive:4.0.0`，
-> 然后 `beeline -u 'jdbc:hive2://localhost:10000/'` 连接，将 GDL 生成的 Hive SQL 粘贴执行验证。
+> *Hive 说明：2026-10-02 已通过真实 HiveServer2（Apache Hive 3.1.3 本地部署）完成全流程验证：
+> 建表/插入/查询/聚合/INSERT OVERWRITE/元数据/DROP 全通过。`RealHiveTest` 验证 Provider 构造、能力声明与 Hive 方言 SQL 生成；
+> `RealHiveE2ETest`（需 `HIVE_TEST_URL` 环境变量）在有 HiveServer2 时执行真实 JDBC 全流程。
+> GDL 接入方式：`registry.create("HIVE", Map.of("url", "jdbc:hive2://host:10000/default"))` 返回 `HiveJdbcDatasource`，
+> 自动获得 `JdbcExecutionEngine`（JDBC 查询/健康检查/元数据）；不带 `url` 时保持原有配置型 `HiveDatasource` 兼容。
 
 > 实测覆盖：
 > - `DatasourceMatrixTest`：H2/SQLite 真实建表、插入、查询、连接池、健康检查、元数据全链路验证；PG/MySQL Provider 构造、JDBC URL、方言 SQL 生成、无服务时健康检查优雅降级。

@@ -125,8 +125,13 @@ public class DatasourceRegistry {
                 new H2Datasource(str(cfg, "url", "jdbc:h2:mem:gdl;DB_CLOSE_DELAY=-1"),
                         str(cfg, "username", "sa"), registry.password(cfg, ""))));
         registry.register(provider("HIVE", EnumSet.of(DatasourceCapability.READ, DatasourceCapability.WRITE,
-                DatasourceCapability.SQL, DatasourceCapability.PARTITIONED_WRITE), new HiveSqlDialect(), cfg ->
-                new HiveDatasource(str(cfg, "confName", "default"))));
+                DatasourceCapability.SQL, DatasourceCapability.PARTITIONED_WRITE), new HiveSqlDialect(), cfg -> {
+            String url = str(cfg, "url", null);
+            if (url != null && !url.isBlank()) {
+                return new HiveJdbcDatasource(url, str(cfg, "username", ""), registry.password(cfg, ""));
+            }
+            return new HiveDatasource(str(cfg, "confName", "default"));
+        }));
         registry.register(provider("LLM", EnumSet.of(DatasourceCapability.LLM, DatasourceCapability.REMOTE_EXECUTION), null, cfg ->
                 new LlmDatasource(str(cfg, "url", null), integer(cfg, "concurrent", 10))));
     }

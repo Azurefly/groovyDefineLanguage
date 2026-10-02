@@ -14,10 +14,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * - 方言 SQL 生成：验证 Hive 特有语法（反引号、LIMIT OFFSET、INSERT OVERWRITE 等）
  *
  * 真实 HiveServer2 连接测试：
- * 互联网上没有公开的 Hive 测试服务。真实验证需在 CI/本地用 Docker 启动官方镜像：
- *   docker run -d -p 10000:10000 --env SERVICE_NAME=hiveserver2 --name hive apache/hive:4.0.0
- * 然后用 beeline 或 Hive JDBC（jdbc:hive2://localhost:10000/default）连接验证。
- * GDL 的 Hive 方言 SQL 可直接在 beeline 中执行验证。
+ * 2026-10-02 已通过真实 HiveServer2（Apache Hive 3.1.3）完成全流程验证。
+ * 本地验证方式：启动 HiveServer2 后设置 HIVE_TEST_URL=jdbc:hive2://127.0.0.1:10000/default，
+ * 运行 RealHiveE2ETest 或 HiveE2EMain。
+ * Docker 方式：docker run -d -p 10000:10000 apache/hive:4.0.0
  */
 public class RealHiveTest {
 
