@@ -26,8 +26,9 @@ import java.util.concurrent.TimeUnit;
 public class LlmClient implements AutoCloseable {
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private final OkHttpClient http;
-    private final ObjectMapper mapper = new ObjectMapper();
     private final String url;
     private final String apiKey;
 
@@ -101,18 +102,18 @@ public class LlmClient implements AutoCloseable {
      * @param params      额外参数（temperature、top_p、response_format 等）
      */
     public String chat(String model, String systemRole, String userPrompt, Map<String, Object> params) throws IOException {
-        ObjectNode body = mapper.createObjectNode();
+        ObjectNode body = MAPPER.createObjectNode();
         body.put("model", model);
         body.put("stream", false);
 
-        ArrayNode messages = mapper.createArrayNode();
+        ArrayNode messages = MAPPER.createArrayNode();
         if (systemRole != null && !systemRole.isBlank()) {
-            ObjectNode sys = mapper.createObjectNode();
+            ObjectNode sys = MAPPER.createObjectNode();
             sys.put("role", "system");
             sys.put("content", systemRole);
             messages.add(sys);
         }
-        ObjectNode user = mapper.createObjectNode();
+        ObjectNode user = MAPPER.createObjectNode();
         user.put("role", "user");
         user.put("content", userPrompt);
         messages.add(user);
@@ -139,7 +140,7 @@ public class LlmClient implements AutoCloseable {
                 String rfStr = String.valueOf(rf).trim();
                 if (rfStr.startsWith("{")) {
                     try {
-                        body.set("response_format", mapper.readTree(rfStr));
+                        body.set("response_format", MAPPER.readTree(rfStr));
                     } catch (Exception ignored) {
                         // 解析失败则保持字符串形式
                     }
@@ -149,7 +150,7 @@ public class LlmClient implements AutoCloseable {
 
         Request.Builder reqBuilder = new Request.Builder()
                 .url(url)
-                .post(RequestBody.create(mapper.writeValueAsString(body), JSON));
+                .post(RequestBody.create(MAPPER.writeValueAsString(body), JSON));
         if (apiKey != null && !apiKey.isBlank()) {
             reqBuilder.header("Authorization", "Bearer " + apiKey);
         }
@@ -159,7 +160,7 @@ public class LlmClient implements AutoCloseable {
             if (!resp.isSuccessful()) {
                 throw new IOException("LLM API 调用失败: HTTP " + resp.code() + " - " + respBody);
             }
-            JsonNode root = mapper.readTree(respBody);
+            JsonNode root = MAPPER.readTree(respBody);
             JsonNode choices = root.get("choices");
             if (choices == null || !choices.isArray() || choices.size() == 0) {
                 throw new IOException("LLM API 返回无 choices: " + respBody);
