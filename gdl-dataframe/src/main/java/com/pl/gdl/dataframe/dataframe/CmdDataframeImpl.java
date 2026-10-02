@@ -171,6 +171,16 @@ public class CmdDataframeImpl implements CmdDataframe {
     }
 
     @Override
+    public CmdDataframe sample(int n) {
+        return new CmdDataframeImpl(new SampleOperator(operator, n), executionEngine);
+    }
+
+    @Override
+    public CmdDataframe sample(double fraction) {
+        return new CmdDataframeImpl(new SampleOperator(operator, fraction), executionEngine);
+    }
+
+    @Override
     public CmdDataframe groupSortFirst(String groupCols, String sortCols) {
         return new CmdDataframeImpl(new GroupSortFirstOperator(operator, groupCols, sortCols), executionEngine);
     }

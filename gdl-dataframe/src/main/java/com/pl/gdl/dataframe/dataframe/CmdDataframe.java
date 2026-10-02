@@ -30,6 +30,8 @@ public interface CmdDataframe {
     CmdDataframe limit(int limit);
     CmdDataframe limit(int offset, int limit);
     CmdDataframe distinct(String... cols);
+    CmdDataframe sample(int n);
+    CmdDataframe sample(double fraction);
     CmdDataframe groupSortFirst(String groupCols, String sortCols);
 
     // Set Operations

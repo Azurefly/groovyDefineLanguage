@@ -113,6 +113,16 @@ public class SqlPushdownEngine implements ExecutionEngine {
             return "SELECT * FROM (" + base + ") sub_limit " + dialect.formatLimit(limitOp.getOffset(), limitOp.getLimit());
         }
 
+        // SAMPLE：随机采样。按行数用 ORDER BY RAND() LIMIT n，按比例用 WHERE RAND() < fraction
+        if (operator instanceof SampleOperator sampleOp) {
+            String base = toSql(sampleOp.getUpstream().get(0));
+            if (sampleOp.isBySize()) {
+                return "SELECT * FROM (" + base + ") sub_sample ORDER BY RAND() LIMIT " + sampleOp.getSampleSize();
+            } else {
+                return "SELECT * FROM (" + base + ") sub_sample WHERE RAND() < " + sampleOp.getFraction();
+            }
+        }
+
         // DISTINCT：无列时 SELECT DISTINCT *，否则 SELECT DISTINCT 列, ...（子查询包一层）
         if (operator instanceof DistinctOperator distinctOp) {
             String base = toSql(distinctOp.getUpstream().get(0));
