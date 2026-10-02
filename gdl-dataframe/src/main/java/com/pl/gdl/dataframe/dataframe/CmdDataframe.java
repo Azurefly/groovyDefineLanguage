@@ -75,6 +75,22 @@ public interface CmdDataframe {
     CmdDataframe llmCall(CmdDatasource llmDs, String model, String role, String target, String resultCol, Map<String, Object> params);
     CmdDataframe groovy(Closure<RowDataFrame> closure);
 
+    /**
+     * 立即执行并缓存当前结果。后续 collect() 直接返回缓存，不再重新计算。
+     * 适用于被多次复用的中间结果。
+     */
+    CmdDataframe cache();
+
+    /**
+     * 清除缓存，下次 collect() 将重新计算。
+     */
+    CmdDataframe uncache();
+
+    /**
+     * 是否已缓存。
+     */
+    boolean isCached();
+
     // Properties & Execution
     String getTempTable();
     String getVAR_TEMP_TABLE();

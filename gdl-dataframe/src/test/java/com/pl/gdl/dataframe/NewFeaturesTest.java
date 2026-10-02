@@ -131,4 +131,24 @@ public class NewFeaturesTest {
         assertThat(((Number) idRow.getValue("null_count")).longValue()).isEqualTo(0);
         assertThat(((Number) idRow.getValue("distinct_count")).longValue()).isEqualTo(100);
     }
+
+    @Test
+    public void testCache() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine);
+
+        assertThat(df.isCached()).isFalse();
+        df.cache();
+        assertThat(df.isCached()).isTrue();
+
+        // 缓存后 collect 返回相同数据
+        RowDataFrame r1 = df.collect();
+        RowDataFrame r2 = df.collect();
+        assertThat(r1.rowSize()).isEqualTo(r2.rowSize()).isEqualTo(100);
+
+        df.uncache();
+        assertThat(df.isCached()).isFalse();
+        // uncache 后重新计算，结果一致
+        assertThat(df.collect().rowSize()).isEqualTo(100);
+    }
 }

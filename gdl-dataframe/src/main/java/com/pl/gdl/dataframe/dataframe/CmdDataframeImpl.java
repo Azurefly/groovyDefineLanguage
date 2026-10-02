@@ -407,4 +407,21 @@ public class CmdDataframeImpl implements CmdDataframe {
     public String toString() {
         return "CmdDataframe{" + operator + "}";
     }
+
+    @Override
+    public CmdDataframe cache() {
+        collect();
+        return this;
+    }
+
+    @Override
+    public CmdDataframe uncache() {
+        cachedData = null;
+        return this;
+    }
+
+    @Override
+    public boolean isCached() {
+        return cachedData != null;
+    }
 }
