@@ -33,6 +33,13 @@ public class LlmCallExecutor {
             throw new IllegalArgumentException("LlmDatasource 未配置 url，无法调用大模型");
         }
 
+        // 空输入保护：直接返回带结果列的空表，避免创建不必要的线程池和连接
+        List<ColumnInfo> outCols = new ArrayList<>(input.getColumns());
+        outCols.add(new ColumnInfo(operator.getResultColumn(), "STRING"));
+        if (input.rowSize() == 0) {
+            return new RowDataFrame(outCols);
+        }
+
         Map<String, Object> params = operator.getModelParams();
         String apiKey = params != null ? String.valueOf(params.getOrDefault("apiKey", "")) : "";
 
@@ -58,8 +65,6 @@ public class LlmCallExecutor {
                     .collect(Collectors.toList());
 
             // 构造输出：原列 + 结果列
-            List<ColumnInfo> outCols = new ArrayList<>(input.getColumns());
-            outCols.add(new ColumnInfo(operator.getResultColumn(), "STRING"));
             RowDataFrame output = new RowDataFrame(outCols);
             for (int i = 0; i < input.rowSize(); i++) {
                 Row inRow = input.getRow(i);
@@ -72,7 +77,16 @@ public class LlmCallExecutor {
             }
             return output;
         } finally {
+            // 优雅关闭：先拒绝新任务，再等待已提交任务完成
             pool.shutdown();
+            try {
+                if (!pool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)) {
+                    pool.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                pool.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

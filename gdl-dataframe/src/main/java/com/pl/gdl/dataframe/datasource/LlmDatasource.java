@@ -10,9 +10,14 @@ public class LlmDatasource extends CmdDatasource {
     }
 
     public LlmDatasource(String url, int concurrent) {
+        this(url, concurrent, 1800);
+    }
+
+    public LlmDatasource(String url, int concurrent, int timeoutSeconds) {
         super("llm-custom");
         this.url = url;
         this.concurrent = concurrent > 0 ? concurrent : 10;
+        this.timeout = timeoutSeconds > 0 ? timeoutSeconds : 1800;
     }
 
     public String getUrl() { return url; }

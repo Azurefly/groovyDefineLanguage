@@ -133,7 +133,7 @@ public class DatasourceRegistry {
             return new HiveDatasource(str(cfg, "confName", "default"));
         }));
         registry.register(provider("LLM", EnumSet.of(DatasourceCapability.LLM, DatasourceCapability.REMOTE_EXECUTION), null, cfg ->
-                new LlmDatasource(str(cfg, "url", null), integer(cfg, "concurrent", 10))));
+                new LlmDatasource(str(cfg, "url", null), integer(cfg, "concurrent", 10), integer(cfg, "timeout", 1800))));
     }
 
     private String password(Map<String, Object> cfg) {
