@@ -33,6 +33,7 @@ public interface CmdDataframe {
     CmdDataframe sample(int n);
     CmdDataframe sample(double fraction);
     CmdDataframe validate(String condition, String message);
+    CmdDataframe describe();
     CmdDataframe groupSortFirst(String groupCols, String sortCols);
 
     // Set Operations

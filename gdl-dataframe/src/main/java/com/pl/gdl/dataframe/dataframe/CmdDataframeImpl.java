@@ -186,6 +186,11 @@ public class CmdDataframeImpl implements CmdDataframe {
     }
 
     @Override
+    public CmdDataframe describe() {
+        return new CmdDataframeImpl(new DescribeOperator(operator), executionEngine);
+    }
+
+    @Override
     public CmdDataframe groupSortFirst(String groupCols, String sortCols) {
         return new CmdDataframeImpl(new GroupSortFirstOperator(operator, groupCols, sortCols), executionEngine);
     }

@@ -84,6 +84,72 @@ public class InMemoryEngine implements ExecutionEngine {
     }
 
     /**
+     * 数据探查：为每列生成统计信息行。
+     */
+    private RowDataFrame describeData(RowDataFrame input) {
+        java.util.List<com.pl.gdl.common.model.ColumnInfo> outCols = java.util.List.of(
+                new com.pl.gdl.common.model.ColumnInfo("column_name", "STRING"),
+                new com.pl.gdl.common.model.ColumnInfo("data_type", "STRING"),
+                new com.pl.gdl.common.model.ColumnInfo("row_count", "BIGINT"),
+                new com.pl.gdl.common.model.ColumnInfo("null_count", "BIGINT"),
+                new com.pl.gdl.common.model.ColumnInfo("distinct_count", "BIGINT"),
+                new com.pl.gdl.common.model.ColumnInfo("min_value", "STRING"),
+                new com.pl.gdl.common.model.ColumnInfo("max_value", "STRING"),
+                new com.pl.gdl.common.model.ColumnInfo("avg_value", "STRING"));
+        RowDataFrame output = new RowDataFrame(outCols);
+
+        String tableName = "__describe_" + System.nanoTime();
+        registerTable(tableName, input);
+        try (java.sql.Connection conn = dataSource.getConnection();
+             java.sql.Statement stmt = conn.createStatement()) {
+            for (com.pl.gdl.common.model.ColumnInfo col : input.getColumns()) {
+                String cn = col.getColumnName();
+                String sql = "SELECT COUNT(*), COUNT(" + cn + "), COUNT(DISTINCT " + cn + "), " +
+                        "MIN(CAST(" + cn + " AS VARCHAR)), MAX(CAST(" + cn + " AS VARCHAR)) FROM " + tableName;
+                String avgSql = "SELECT AVG(CAST(" + cn + " AS DOUBLE)) FROM " + tableName +
+                        " WHERE " + cn + " IS NOT NULL";
+                try (java.sql.ResultSet rs = stmt.executeQuery(sql)) {
+                    if (rs.next()) {
+                        long rowCount = rs.getLong(1);
+                        long nonNull = rs.getLong(2);
+                        long distinct = rs.getLong(3);
+                        String min = rs.getString(4);
+                        String max = rs.getString(5);
+                        String avg = null;
+                        try (java.sql.ResultSet rs2 = stmt.executeQuery(avgSql)) {
+                            if (rs2.next()) {
+                                avg = rs2.getString(1);
+                            }
+                        } catch (Exception ignored) {
+                            // 非数值列 AVG 会失败，忽略
+                        }
+                        com.pl.gdl.common.model.Row row = new com.pl.gdl.common.model.Row();
+                        row.setValue("column_name", cn);
+                        row.setValue("data_type", col.getDataTypeName());
+                        row.setValue("row_count", rowCount);
+                        row.setValue("null_count", rowCount - nonNull);
+                        row.setValue("distinct_count", distinct);
+                        row.setValue("min_value", min);
+                        row.setValue("max_value", max);
+                        row.setValue("avg_value", avg);
+                        output.addRow(row);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("数据探查执行失败: " + e.getMessage(), e);
+        } finally {
+            try (java.sql.Connection conn = dataSource.getConnection();
+                 java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute("DROP TABLE IF EXISTS " + tableName);
+            } catch (Exception ignored) {
+            }
+            inMemoryTables.remove(tableName.toLowerCase(java.util.Locale.ROOT));
+        }
+        return output;
+    }
+
+    /**
      * 数据质量检查：在内存表中执行条件查询，统计不满足条件的行数。
      * 使用 H2 SQL 的 NOT (condition) 来找出违规行。
      */
@@ -290,6 +356,11 @@ public class InMemoryEngine implements ExecutionEngine {
             RowDataFrame input = !validateOp.getUpstream().isEmpty() ? execute(validateOp.getUpstream().get(0)) : new RowDataFrame();
             validateDataQuality(input, validateOp);
             return input;
+        }
+
+        if (operator instanceof com.pl.gdl.dataframe.operator.base.DescribeOperator describeOp) {
+            RowDataFrame input = !describeOp.getUpstream().isEmpty() ? execute(describeOp.getUpstream().get(0)) : new RowDataFrame();
+            return describeData(input);
         }
 
         if (operator instanceof FromOperator fromOp) {

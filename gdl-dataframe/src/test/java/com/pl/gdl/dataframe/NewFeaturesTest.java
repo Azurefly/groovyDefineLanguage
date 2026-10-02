@@ -108,4 +108,27 @@ public class NewFeaturesTest {
         assertThatThrownBy(() -> df.validate("", "msg")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> df.validate(null, "msg")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    public void testDescribe() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine);
+
+        RowDataFrame result = df.describe().collect();
+        // 3 列：id, name, amount
+        assertThat(result.rowSize()).isEqualTo(3);
+
+        // 找到 id 列的统计
+        com.pl.gdl.common.model.Row idRow = null;
+        for (int i = 0; i < result.rowSize(); i++) {
+            if ("id".equals(result.getRow(i).getValue("column_name"))) {
+                idRow = result.getRow(i);
+                break;
+            }
+        }
+        assertThat(idRow).isNotNull();
+        assertThat(((Number) idRow.getValue("row_count")).longValue()).isEqualTo(100);
+        assertThat(((Number) idRow.getValue("null_count")).longValue()).isEqualTo(0);
+        assertThat(((Number) idRow.getValue("distinct_count")).longValue()).isEqualTo(100);
+    }
 }
