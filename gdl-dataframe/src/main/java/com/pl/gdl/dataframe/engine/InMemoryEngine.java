@@ -49,7 +49,7 @@ public class InMemoryEngine implements ExecutionEngine {
             for (int i = 0; i < df.getColumns().size(); i++) {
                 if (i > 0) sb.append(", ");
                 ColumnInfo col = df.getColumns().get(i);
-                sb.append(col.getColumnName()).append(" VARCHAR(500)");
+                sb.append(col.getColumnName()).append(" ").append(toH2Type(col.getDataTypeName()));
             }
             sb.append(")");
             try (Statement stmt = conn.createStatement()) {
@@ -69,8 +69,9 @@ public class InMemoryEngine implements ExecutionEngine {
                 try (PreparedStatement ps = conn.prepareStatement(ins.toString())) {
                     for (Row row : df) {
                         for (int i = 0; i < df.getColumns().size(); i++) {
-                            Object val = row.getValue(df.getColumns().get(i).getColumnName());
-                            ps.setObject(i + 1, val != null ? String.valueOf(val) : null);
+                            ColumnInfo col = df.getColumns().get(i);
+                            Object val = row.getValue(col.getColumnName());
+                            ps.setObject(i + 1, toH2Value(val, col.getDataTypeName()));
                         }
                         ps.addBatch();
                     }
@@ -79,6 +80,93 @@ public class InMemoryEngine implements ExecutionEngine {
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to register H2 table: " + tableName, e);
+        }
+    }
+
+    /**
+     * 将 ColumnInfo 的数据类型名映射为 H2 SQL 类型。
+     * 未知类型默认 VARCHAR(500)，保证兼容性。
+     */
+    private static String toH2Type(String dataTypeName) {
+        if (dataTypeName == null) {
+            return "VARCHAR(500)";
+        }
+        switch (dataTypeName.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "INT":
+            case "INTEGER":
+                return "INTEGER";
+            case "BIGINT":
+            case "LONG":
+                return "BIGINT";
+            case "DOUBLE":
+            case "FLOAT":
+                return "DOUBLE";
+            case "DECIMAL":
+            case "NUMERIC":
+                return "DECIMAL(38,10)";
+            case "BOOLEAN":
+            case "BOOL":
+                return "BOOLEAN";
+            case "DATE":
+                return "DATE";
+            case "TIMESTAMP":
+            case "DATETIME":
+                return "TIMESTAMP";
+            default:
+                return "VARCHAR(500)";
+        }
+    }
+
+    /**
+     * 将值转换为适合 H2 插入的 Java 类型。数值类型尝试解析字符串，
+     * 解析失败则回退为原值（H2 会尝试隐式转换）。
+     */
+    private static Object toH2Value(Object val, String dataTypeName) {
+        if (val == null) {
+            return null;
+        }
+        if (dataTypeName == null) {
+            return val;
+        }
+        String type = dataTypeName.trim().toUpperCase(java.util.Locale.ROOT);
+        try {
+            switch (type) {
+                case "INT":
+                case "INTEGER":
+                    if (val instanceof Number) {
+                        return ((Number) val).intValue();
+                    }
+                    return Integer.parseInt(val.toString().trim());
+                case "BIGINT":
+                case "LONG":
+                    if (val instanceof Number) {
+                        return ((Number) val).longValue();
+                    }
+                    return Long.parseLong(val.toString().trim());
+                case "DOUBLE":
+                case "FLOAT":
+                    if (val instanceof Number) {
+                        return ((Number) val).doubleValue();
+                    }
+                    return Double.parseDouble(val.toString().trim());
+                case "DECIMAL":
+                case "NUMERIC":
+                    if (val instanceof java.math.BigDecimal) {
+                        return val;
+                    }
+                    return new java.math.BigDecimal(val.toString().trim());
+                case "BOOLEAN":
+                case "BOOL":
+                    if (val instanceof Boolean) {
+                        return val;
+                    }
+                    return Boolean.parseBoolean(val.toString().trim());
+                default:
+                    return val;
+            }
+        } catch (NumberFormatException e) {
+            // 解析失败时回退为原值，让 H2 尝试处理
+            return val;
         }
     }
 

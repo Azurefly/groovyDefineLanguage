@@ -89,11 +89,11 @@ public class CmdDataframeTest {
         );
 
         RowDataFrame first = new RowDataFrame(columns);
-        first.addRowValue(List.of("1", "Alice"));
+        first.addRowValue(List.of(1, "Alice"));
         engine.registerTable("t_replace", first);
 
         RowDataFrame second = new RowDataFrame(columns);
-        second.addRowValue(List.of("2", "Bob"));
+        second.addRowValue(List.of(2, "Bob"));
         engine.registerTable("t_replace", second);
 
         CmdDataframe df = new CmdDataframeImpl(new FromOperator(new HiveDatasource(), "t_replace"), engine)
@@ -102,8 +102,10 @@ public class CmdDataframeTest {
 
         RowDataFrame result = df.collect();
         assertThat(result.rowSize()).isEqualTo(1);
-        assertThat((String) result.getRow(0).getValue("id")).isEqualTo("2");
-        assertThat((String) result.getRow(0).getValue("name")).isEqualTo("Bob");
+        Object idVal = result.getRow(0).getValue("id");
+        Object nameVal = result.getRow(0).getValue("name");
+        assertThat(idVal).isEqualTo(2);
+        assertThat(String.valueOf(nameVal)).isEqualTo("Bob");
     }
 
     @Test

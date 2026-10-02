@@ -66,7 +66,7 @@ Execution
 | PostgreSQL | ✅ | ✅ 实测 | ✅ 实测 | ✅ 实测 | Pushdown | 架构支持 | 真实 PG 14 Server 验证通过（建表/查询/健康检查/元数据） |
 | MySQL | ✅ | 待真实 Server | 待真实 Server | 优雅降级已测 | Pushdown | 架构支持 | Provider/URL/方言已测；嵌入式测试在 CI 执行 |
 | Hive | ✅ | ✅ 实测 | — | ✅ 实测 | Fallback | 待扩展 | HiveServer2 JDBC 真实验证通过 |
-| LLM | ✅ | N/A | — | 待专用实现 | 专用路径 | N/A | 非关系型远程能力 |
+| LLM | ✅ | ✅ 实测 | — | N/A | 专用路径 | N/A | 非关系型远程能力：`llmCall` 已有真实执行实现（OkHttp 调 OpenAI 兼容 API），Ollama 本地实测通过 |
 
 > *Hive 说明：2026-10-02 已通过真实 HiveServer2（Apache Hive 3.1.3 本地部署）完成全流程验证：
 > 建表/插入/查询/聚合/INSERT OVERWRITE/元数据/DROP 全通过。`RealHiveTest` 验证 Provider 构造、能力声明与 Hive 方言 SQL 生成；
@@ -183,3 +183,27 @@ returnDf(df)
 # 运行全量模块单元测试与验证
 mvn -B -ntp verify
 ```
+
+## 快速上手（Demo）
+
+`demo/` 目录是独立可运行的演示项目，零外部依赖（除 Demo 3 需要 Ollama）：
+
+```bash
+# 1. 先安装 GDL 到本地仓库
+mvn -B -ntp install -DskipTests -pl gdl-common,gdl-dataframe,gdl-runtime -am
+
+# 2. 运行 Demo
+cd demo
+mvn -o compile
+
+# Demo 1：H2 内存 ETL（过滤→投影→聚合→排序→TopN）
+java -cp <classpath> com.pl.gdl.demo.H2EtlDemo
+
+# Demo 2：跨源联邦查询（用户表 left join 订单表）
+java -cp <classpath> com.pl.gdl.demo.FederatedDemo
+
+# Demo 3：LLM 大模型调用（需 ollama serve + ollama pull qwen2:0.5b）
+java -cp <classpath> com.pl.gdl.demo.LlmDemo
+```
+
+详见 [demo/README.md](demo/README.md)。
