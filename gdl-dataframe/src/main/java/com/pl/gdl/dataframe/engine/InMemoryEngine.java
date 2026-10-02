@@ -91,15 +91,30 @@ public class InMemoryEngine implements ExecutionEngine {
         if (dataTypeName == null) {
             return "VARCHAR(500)";
         }
-        switch (dataTypeName.trim().toUpperCase(java.util.Locale.ROOT)) {
+        String t = dataTypeName.trim().toUpperCase(java.util.Locale.ROOT);
+        // 支持 VARCHAR(n) / CHAR(n) 保留长度
+        if (t.startsWith("VARCHAR(") && t.endsWith(")")) {
+            return t;
+        }
+        if (t.startsWith("CHAR(") && t.endsWith(")")) {
+            return t;
+        }
+        switch (t) {
             case "INT":
             case "INTEGER":
                 return "INTEGER";
+            case "SMALLINT":
+            case "SHORT":
+                return "SMALLINT";
+            case "TINYINT":
+            case "BYTE":
+                return "TINYINT";
             case "BIGINT":
             case "LONG":
                 return "BIGINT";
             case "DOUBLE":
             case "FLOAT":
+            case "REAL":
                 return "DOUBLE";
             case "DECIMAL":
             case "NUMERIC":
@@ -109,9 +124,17 @@ public class InMemoryEngine implements ExecutionEngine {
                 return "BOOLEAN";
             case "DATE":
                 return "DATE";
+            case "TIME":
+                return "TIME";
             case "TIMESTAMP":
             case "DATETIME":
                 return "TIMESTAMP";
+            case "CHAR":
+                return "CHAR(1)";
+            case "STRING":
+            case "TEXT":
+            case "VARCHAR":
+                return "VARCHAR(500)";
             default:
                 return "VARCHAR(500)";
         }

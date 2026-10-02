@@ -192,18 +192,11 @@ mvn -B -ntp verify
 # 1. 先安装 GDL 到本地仓库
 mvn -B -ntp install -DskipTests -pl gdl-common,gdl-dataframe,gdl-runtime -am
 
-# 2. 运行 Demo
+# 2. 一键运行 Demo（自动打包 shade jar）
 cd demo
-mvn -o compile
-
-# Demo 1：H2 内存 ETL（过滤→投影→聚合→排序→TopN）
-java -cp <classpath> com.pl.gdl.demo.H2EtlDemo
-
-# Demo 2：跨源联邦查询（用户表 left join 订单表）
-java -cp <classpath> com.pl.gdl.demo.FederatedDemo
-
-# Demo 3：LLM 大模型调用（需 ollama serve + ollama pull qwen2:0.5b）
-java -cp <classpath> com.pl.gdl.demo.LlmDemo
+./run-demo.sh 1   # Demo 1：H2 内存 ETL（过滤→投影→聚合→排序→TopN）
+./run-demo.sh 2   # Demo 2：跨源联邦查询（用户表 left join 订单表）
+./run-demo.sh 3   # Demo 3：LLM 大模型调用（需 ollama serve + ollama pull qwen2:0.5b）
 ```
 
 详见 [demo/README.md](demo/README.md)。

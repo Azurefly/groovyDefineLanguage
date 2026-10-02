@@ -60,7 +60,19 @@ public class LlmDemo {
                         "sentiment",
                         Map.of("temperature", 0.1));
 
-        RowDataFrame result = df.collect();
+        RowDataFrame result;
+        try {
+            result = df.collect();
+        } catch (Exception e) {
+            System.err.println("\n[错误] LLM 调用失败: " + rootCause(e));
+            System.err.println("\n请检查:");
+            System.err.println("  1. Ollama 是否已启动: ollama serve &");
+            System.err.println("  2. 模型是否已拉取: ollama pull " + llmModel);
+            System.err.println("  3. 服务地址是否正确: " + llmUrl);
+            System.err.println("  可通过环境变量覆盖: LLM_URL、LLM_MODEL");
+            System.exit(1);
+            return;
+        }
 
         // 4. 打印结果
         System.out.println("\n--- 情感分析结果 ---");
@@ -73,5 +85,14 @@ public class LlmDemo {
         }
 
         System.out.println("\nDemo 3 执行成功！");
+    }
+
+    private static String rootCause(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        String msg = t.getMessage();
+        return msg != null ? msg : t.getClass().getSimpleName();
     }
 }
