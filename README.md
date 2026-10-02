@@ -5,7 +5,7 @@
 [![Java](https://img.shields.io/badge/Java-17-orange.svg)](https://openjdk.org/projects/jdk/17/)
 [![Groovy](https://img.shields.io/badge/Groovy-4.0-green.svg)](https://groovy-lang.org/)
 
-GDL（GroovyDefine Language）是基于 Groovy 语法的领域特定模型语言（DSL），运行在 TRE（TaoSha Runtime Engine）分布式规则与计算引擎中。
+GDL（GroovyDefine Language）是基于 Groovy 语法的领域特定模型语言（DSL），用于分布式规则与计算引擎。
 它提供流批一体的数据建模、ETL 编排、面向业务的本体（Ontology）建模、跨数据中心漂移（Drift）以及可扩展多数据源访问能力。
 
 ---
@@ -111,7 +111,7 @@ Execution
   - 安全默认：鉴权默认开启。启动时传入 `token` 即启用鉴权（请求头 `tre-token`）；未传 `token` 则进入 open 模式并打印醒目警告，仅建议本地调试使用
 - **Java 远程 SDK**：提供 `TreRemoteHttpClient` 实现透明 RPC 远程调用
 - **HTTP RESTful API**：支持各类第三方系统（Python, Go, Node.js 等）通过 HTTP 接口触发任务计算、查询结果与注册本体
-- **MCP 协议支持**：支持 Model Context Protocol，暴露 `start_task`、`get_task_result`、`get_tsml_to_dag` 工具方法，方便 AI Agent / 大模型客户端（CherryStudio、Claude、Dify 等）直接调度与可视化
+- **MCP 协议支持**：支持 Model Context Protocol，暴露 `start_task`、`get_task_result` 工具方法，方便 AI Agent / 大模型客户端（CherryStudio、Claude、Dify 等）直接调度
 - 详见文档：[docs/REMOTE_API_GUIDE.md](docs/REMOTE_API_GUIDE.md)
 
 ---
