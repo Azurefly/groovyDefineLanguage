@@ -61,12 +61,16 @@ Execution
 
 | 类型 | Registry / DSL | JDBC 实际查询 | 连接池 | 元数据/健康 | Planner | 联邦源查询 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| H2 | ✅ | ✅ | ✅ | ✅ | Pushdown | ✅ 实测 | 本地开发、测试、嵌入式 |
-| SQLite | ✅ | ✅ | ✅ | ✅ | Pushdown | ✅ 实测 | 文件或 `:memory:` |
-| PostgreSQL | ✅ | ✅ | ✅ | ✅ | Pushdown | 架构支持 | 当前 CI 未启动真实 PostgreSQL Server |
-| MySQL | ✅ | ✅ | ✅ | ✅ | Pushdown | 架构支持 | 当前 CI 未启动真实 MySQL Server |
+| H2 | ✅ | ✅ 实测 | ✅ 实测 | ✅ 实测 | Pushdown | ✅ 实测 | 本地开发、测试、嵌入式 |
+| SQLite | ✅ | ✅ 实测 | ✅ 实测 | ✅ 实测 | Pushdown | ✅ 实测 | 文件或 `:memory:` |
+| PostgreSQL | ✅ | 待真实 Server | 待真实 Server | 优雅降级已测 | Pushdown | 架构支持 | Provider/URL/方言已测；CI 未启动真实 Server |
+| MySQL | ✅ | 待真实 Server | 待真实 Server | 优雅降级已测 | Pushdown | 架构支持 | Provider/URL/方言已测；CI 未启动真实 Server |
 | Hive | ✅ | 现有路径 | — | 待专用实现 | Fallback | 待扩展 | 保持既有 Hive 兼容 |
 | LLM | ✅ | N/A | — | 待专用实现 | 专用路径 | N/A | 非关系型远程能力 |
+
+> 实测覆盖：`DatasourceMatrixTest` 对 H2/SQLite 做真实建表、插入、查询、连接池、健康检查、元数据全链路验证；
+> 对 PostgreSQL/MySQL 验证 Provider 构造、JDBC URL、方言 SQL 生成，以及无服务时健康检查优雅降级（返回 unhealthy 而非抛异常）。
+> 真实 PG/MySQL Server 的端到端查询尚未在 CI 中验证。
 
 当前已经存在**真实跨物理数据源执行路径**：H2 与 SQLite 分别执行 SQL 下推，将结果通过内存 Exchange 物化，再进行 Hash Join。它不是“把任意跨库 SQL 原样发出去”，也不宣称已经支持任意 DataFrame 算子图的自动联邦化。
 
