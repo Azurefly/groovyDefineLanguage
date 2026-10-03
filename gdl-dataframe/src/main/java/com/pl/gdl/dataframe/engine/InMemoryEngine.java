@@ -30,12 +30,46 @@ public class InMemoryEngine implements ExecutionEngine {
     public void registerTable(String tableName, RowDataFrame df) {
         if (tableName == null || tableName.isBlank()) {
             throw new IllegalArgumentException("tableName must not be blank");
-        }
-        Objects.requireNonNull(df, "df must not be null");
+        }        Objects.requireNonNull(df, "df must not be null");
 
         String normalizedTableName = tableName.trim();
         createAndPopulateH2Table(normalizedTableName, df);
         inMemoryTables.put(normalizedTableName.toLowerCase(Locale.ROOT), df);
+    }
+
+    /**
+     * 注册用户自定义函数（UDF），可在 SQL 表达式中调用。
+     * 基于 H2 的 CREATE ALIAS 机制。
+     *
+     * <p>示例：
+     * <pre>
+     * engine.registerFunction("mask_phone", MyFuncs.class, "maskPhone");
+     * df.withColumn("masked", "mask_phone(phone)")
+     * </pre>
+     *
+     * @param name 函数名（SQL 中调用的名称）
+     * @param clazz 包含静态方法的类
+     * @param methodName 静态方法名
+     */
+    public void registerFunction(String name, Class<?> clazz, String methodName) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("function name must not be blank");
+        }
+        Objects.requireNonNull(clazz, "clazz must not be null");
+        if (methodName == null || methodName.isBlank()) {
+            throw new IllegalArgumentException("methodName must not be blank");
+        }
+        // 函数名白名单校验（防注入）
+        if (!name.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+            throw new IllegalArgumentException("非法函数名: " + name);
+        }
+        try (Connection conn = dataSource.getConnection();
+             java.sql.Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE ALIAS IF NOT EXISTS " + name +
+                    " FOR \"" + clazz.getName() + "." + methodName + "\"");
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException("注册 UDF 失败: " + name + ", " + e.getMessage(), e);
+        }
     }
 
     private void createAndPopulateH2Table(String tableName, RowDataFrame df) {

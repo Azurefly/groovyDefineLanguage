@@ -4,6 +4,7 @@ import com.pl.gdl.common.model.ColumnInfo;
 import com.pl.gdl.common.model.RowDataFrame;
 import com.pl.gdl.dataframe.dataframe.CmdDataframe;
 import com.pl.gdl.dataframe.dataframe.CmdDataframeImpl;
+import com.pl.gdl.dataframe.dataframe.ExecutionMetrics;
 import com.pl.gdl.dataframe.datasource.HiveDatasource;
 import com.pl.gdl.dataframe.engine.InMemoryEngine;
 import com.pl.gdl.dataframe.operator.base.FromOperator;
@@ -198,5 +199,80 @@ public class NewFeaturesTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> df.pivot("quarter", "", "SUM", "id"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    public void testWriteCsvAndJson() throws Exception {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine).limit(5);
+
+        java.nio.file.Path csvPath = java.nio.file.Files.createTempFile("gdl-test-", ".csv");
+        java.nio.file.Path jsonPath = java.nio.file.Files.createTempFile("gdl-test-", ".json");
+        try {
+            df.writeCsv(csvPath.toString());
+            java.util.List<String> csvLines = java.nio.file.Files.readAllLines(csvPath);
+            // 表头 + 5 行数据（H2 列名大写）
+            assertThat(csvLines).hasSize(6);
+            assertThat(csvLines.get(0).toLowerCase()).contains("id").contains("name").contains("amount");
+
+            df.writeJson(jsonPath.toString());
+            java.util.List<String> jsonLines = java.nio.file.Files.readAllLines(jsonPath);
+            assertThat(jsonLines).hasSize(5);
+            assertThat(jsonLines.get(0).toLowerCase()).contains("\"id\"");
+        } finally {
+            java.nio.file.Files.deleteIfExists(csvPath);
+            java.nio.file.Files.deleteIfExists(jsonPath);
+        }
+    }
+
+    @Test
+    public void testLineage() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine)
+                .where("amount > 100")
+                .select("id", "amount");
+
+        java.util.List<String> lineage = df.lineage();
+        assertThat(lineage).isNotEmpty();
+        // 按执行顺序：from -> where -> select
+        assertThat(lineage.get(0)).contains("from");
+        assertThat(lineage).anyMatch(s -> s.contains("where"));
+        assertThat(lineage).anyMatch(s -> s.contains("select"));
+    }
+
+    @Test
+    public void testExecutionMetrics() {
+        InMemoryEngine engine = new InMemoryEngine();
+        CmdDataframe df = createTestData(engine).where("amount > 100");
+
+        assertThat(df.getLastMetrics()).isNull();
+        RowDataFrame result = df.collect();
+        ExecutionMetrics metrics = df.getLastMetrics();
+        assertThat(metrics).isNotNull();
+        assertThat(metrics.getRowCount()).isEqualTo(result.rowSize());
+        assertThat(metrics.getElapsedMillis()).isGreaterThanOrEqualTo(0);
+        assertThat(metrics.isFromCache()).isFalse();
+
+        // 第二次 collect 命中缓存
+        df.collect();
+        assertThat(df.getLastMetrics().isFromCache()).isTrue();
+    }
+
+    @Test
+    public void testRegisterFunction() {
+        InMemoryEngine engine = new InMemoryEngine();
+        engine.registerFunction("test_double_it", NewFeaturesTest.class, "doubleIt");
+
+        CmdDataframe df = createTestData(engine);
+        RowDataFrame result = df.withColumn("double_amount", "test_double_it(amount)").limit(3).collect();
+        assertThat(result.rowSize()).isEqualTo(3);
+        // 验证函数生效：amount=10 -> 20
+        Object val = result.getRow(0).getValue("double_amount");
+        assertThat(((Number) val).doubleValue()).isEqualTo(20.0);
+    }
+
+    /** 测试用 UDF：数值翻倍 */
+    public static Double doubleIt(Double x) {
+        return x == null ? null : x * 2;
     }
 }

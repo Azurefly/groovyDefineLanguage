@@ -42,6 +42,7 @@ public class CmdDataframeImpl implements CmdDataframe {
     private final LogicalOperator operator;
     private ExecutionEngine executionEngine;
     private RowDataFrame cachedData;
+    private ExecutionMetrics lastMetrics;
 
     public CmdDataframeImpl(LogicalOperator operator) {
         this.operator = operator;
@@ -416,14 +417,35 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     @Override
     public RowDataFrame collect() {
+        long start = System.currentTimeMillis();
+        boolean fromCache = false;
+        String sql = null;
+        RowDataFrame result;
         if (cachedData != null) {
-            return cachedData;
-        }
-        if (executionEngine != null) {
+            result = cachedData;
+            fromCache = true;
+        } else if (executionEngine != null) {
+            // 尝试获取生成的 SQL（用于排障）
+            if (executionEngine instanceof com.pl.gdl.dataframe.engine.InMemoryEngine) {
+                try {
+                    sql = ((com.pl.gdl.dataframe.engine.InMemoryEngine) executionEngine).toSql(operator);
+                } catch (Exception ignored) {
+                    // 非 SQL 算子（如 validate/describe/pivot）无 SQL，忽略
+                }
+            }
             cachedData = executionEngine.execute(operator);
-            return cachedData;
+            result = cachedData;
+        } else {
+            result = new RowDataFrame();
         }
-        return new RowDataFrame();
+        long elapsed = System.currentTimeMillis() - start;
+        lastMetrics = new ExecutionMetrics(elapsed, result.rowSize(), sql, fromCache);
+        return result;
+    }
+
+    @Override
+    public ExecutionMetrics getLastMetrics() {
+        return lastMetrics;
     }
 
     @Override
@@ -446,5 +468,91 @@ public class CmdDataframeImpl implements CmdDataframe {
     @Override
     public boolean isCached() {
         return cachedData != null;
+    }
+
+    @Override
+    public void writeCsv(String filePath) {
+        writeCsv(filePath, true, ',');
+    }
+
+    @Override
+    public void writeCsv(String filePath, boolean withHeader, char delimiter) {
+        RowDataFrame data = collect();
+        try (java.io.BufferedWriter writer = java.nio.file.Files.newBufferedWriter(
+                java.nio.file.Paths.get(filePath), java.nio.charset.StandardCharsets.UTF_8)) {
+            if (withHeader) {
+                writer.write(data.getColumns().stream()
+                        .map(c -> escapeCsv(c.getColumnName(), delimiter))
+                        .collect(java.util.stream.Collectors.joining(String.valueOf(delimiter))));
+                writer.newLine();
+            }
+            for (com.pl.gdl.common.model.Row row : data) {
+                String line = data.getColumns().stream()
+                        .map(c -> escapeCsv(toCsvString(row.getValue(c.getColumnName())), delimiter))
+                        .collect(java.util.stream.Collectors.joining(String.valueOf(delimiter)));
+                writer.write(line);
+                writer.newLine();
+            }
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("写入 CSV 失败: " + filePath + ", " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void writeJson(String filePath) {
+        RowDataFrame data = collect();
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        try (java.io.BufferedWriter writer = java.nio.file.Files.newBufferedWriter(
+                java.nio.file.Paths.get(filePath), java.nio.charset.StandardCharsets.UTF_8)) {
+            for (com.pl.gdl.common.model.Row row : data) {
+                java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+                for (com.pl.gdl.common.model.ColumnInfo col : data.getColumns()) {
+                    map.put(col.getColumnName(), row.getValue(col.getColumnName()));
+                }
+                writer.write(mapper.writeValueAsString(map));
+                writer.newLine();
+            }
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("写入 JSON 失败: " + filePath + ", " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * CSV 字段转义（RFC 4180）：含分隔符、引号、换行时用双引号包裹，内部引号 doubling。
+     */
+    private static String escapeCsv(String value, char delimiter) {
+        if (value == null) {
+            return "";
+        }
+        boolean needQuote = value.indexOf(delimiter) >= 0 || value.indexOf('"') >= 0
+                || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0;
+        if (needQuote) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
+    private static String toCsvString(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    @Override
+    public java.util.List<String> lineage() {
+        java.util.List<String> chain = new java.util.ArrayList<>();
+        collectLineage(operator, chain);
+        java.util.Collections.reverse(chain);
+        return chain;
+    }
+
+    private static void collectLineage(com.pl.gdl.dataframe.operator.LogicalOperator op,
+                                       java.util.List<String> chain) {
+        if (op == null) {
+            return;
+        }
+        chain.add(op.toString());
+        // 只追踪第一条上游链（线性血缘）；多上游（如 join/union）追踪所有分支
+        for (com.pl.gdl.dataframe.operator.LogicalOperator upstream : op.getUpstream()) {
+            collectLineage(upstream, chain);
+        }
     }
 }

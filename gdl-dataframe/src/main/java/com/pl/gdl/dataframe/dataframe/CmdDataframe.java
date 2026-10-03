@@ -110,4 +110,45 @@ public interface CmdDataframe {
     LogicalOperator getOperator();
     RowDataFrame getData();
     RowDataFrame collect();
+
+    /**
+     * 导出为 CSV 文件（UTF-8 编码，含表头，RFC 4180 转义）。
+     * 这是一个终止操作（terminal operation）。
+     *
+     * @param filePath 目标文件路径
+     */
+    void writeCsv(String filePath);
+
+    /**
+     * 导出为 CSV 文件。
+     *
+     * @param filePath 目标文件路径
+     * @param withHeader 是否含表头
+     * @param delimiter 分隔符（通常为 ',' 或 '\t'）
+     */
+    void writeCsv(String filePath, boolean withHeader, char delimiter);
+
+    /**
+     * 导出为 JSON Lines 文件（每行一个 JSON 对象，UTF-8 编码）。
+     * 这是一个终止操作（terminal operation）。
+     *
+     * @param filePath 目标文件路径
+     */
+    void writeJson(String filePath);
+
+    /**
+     * 返回从数据源到当前节点的算子变换链（数据血缘）。
+     * 用于数据治理、影响分析和调试。
+     *
+     * @return 算子描述列表，按执行顺序排列
+     */
+    java.util.List<String> lineage();
+
+    /**
+     * 返回上次 collect() 的执行指标。
+     * 首次调用 collect() 之前返回 null。
+     *
+     * @return 执行指标，或 null
+     */
+    ExecutionMetrics getLastMetrics();
 }
