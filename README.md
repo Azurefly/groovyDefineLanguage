@@ -103,23 +103,23 @@ Execution
 通过 `variable("生成器名称", 参数Map)` 动态求值：
 - `CurrentTimeVar`: 支持 `DATE8`, `DATE10`, `DATE14`, `DATE_8`, `DATE_14`, `SEC` 等时间变量
 - `CommonIncrementVar`: 增量高水位线抽取条件
-- `BdosPartitionIncrementVar`: 分区增量范围抽取
-- `BdosPartitionModifyIncrementVar`: 分区最后修改时间增量
-- `BdosReadLastNPartitionVar`: 最新 N 个分区增量
-- `BdosReadLastOnePartitionVar`: 最新单一分区
-- `BdosReadLastPartitionVar`: 读取最新分区区间
+- `BdosPartitionIncrementVar`: 分区增量范围抽取（已废弃，调用抛未实现异常）
+- `BdosPartitionModifyIncrementVar`: 分区最后修改时间增量（已废弃，调用抛未实现异常）
+- `BdosReadLastNPartitionVar`: 最新 N 个分区增量（已废弃，调用抛未实现异常）
+- `BdosReadLastOnePartitionVar`: 最新单一分区（已废弃，调用抛未实现异常）
+- `BdosReadLastPartitionVar`: 读取最新分区区间（已废弃，调用抛未实现异常）
 
 ### 3. 业务本体模型（Ontology）
 - 业务类继承 `Ontology`，使用 `@Table` 与 `@Column` 注解定义模型元数据与物理表映射
 - 支持通过 `OntologyRegistry` 进行动态字节码编译与热加载，规避 Metaspace 内存泄露
-- 支持 `save`, `delete`, `update`, `addColumns`, `dropTable` 物理表操作
+- `save`/`delete`/`update`/`addColumns`/`dropTable` 为接口预留，当前版本尚未实现（调用抛 `UnsupportedOperationException`），请勿用于生产写操作
 - 支持链式查询 `where`, `select`, `mapping`, `sort`, `limit`, `distinct`，及跨地市漂移查询与多本体数据传递
 
 ### 4. 跨节点漂移计算（Drift）
 - 依据数据源的 `areaCode`，自动分析全图亲和性
-- 遇到跨地域边时，自动将 DAG 图切割为本地执行子图与远端执行子图
-- 自动生成 `driftTo().attach()` 发送与 `driftFrom()` 接收逻辑
-- 传输使用 `tre_temp_{uuid}_{timestamp}` 临时表，任务执行完毕后保证自动清理
+- 遇到跨地域边时，自动将 DAG 图切割为本地执行子图与远端执行子图（规划能力已实现）
+- `driftTo().attach()` 的跨地域数据传输执行层当前尚未实现（调用抛 `UnsupportedOperationException`）；`driftFrom()` 当前退化为普通 `from()` 查询
+- 传输使用 `tre_temp_{uuid}_{timestamp}` 临时表命名规范（中间表物理建表/清理的负责人待明确）
 
 ### 5. 第三方远程调用与服务化支持
 - **独立 HTTP 服务**：内置高可用 HTTP 服务，通过 `./bin/start-server.sh <port> [token]` 启动

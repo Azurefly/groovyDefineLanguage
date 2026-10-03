@@ -349,25 +349,34 @@ public class CmdDataframeImpl implements CmdDataframe {
         return this;
     }
 
-    @Override
-    public CmdDataframe tumbleWindow(String timeCol, String size, String unit, String... offsetAndUnit) {
+    /**
+     * 解析窗口算子的可选 offset 参数（DU-03 去重）。
+     * offsetAndUnit 为可变参数：长度 0 → 无 offset；长度 1 → offset 值；长度 2 → offset 值 + 单位。
+     *
+     * @return 二元组 [offset, offsetUnit]，缺失时对应位置为 null
+     */
+    private static String[] parseWindowOffset(String... offsetAndUnit) {
         String offset = offsetAndUnit != null && offsetAndUnit.length > 0 ? offsetAndUnit[0] : null;
         String offsetUnit = offsetAndUnit != null && offsetAndUnit.length > 1 ? offsetAndUnit[1] : null;
-        return new CmdDataframeImpl(new TumbleWindowOperator(operator, timeCol, size, unit, offset, offsetUnit), executionEngine);
+        return new String[]{offset, offsetUnit};
+    }
+
+    @Override
+    public CmdDataframe tumbleWindow(String timeCol, String size, String unit, String... offsetAndUnit) {
+        String[] offset = parseWindowOffset(offsetAndUnit);
+        return new CmdDataframeImpl(new TumbleWindowOperator(operator, timeCol, size, unit, offset[0], offset[1]), executionEngine);
     }
 
     @Override
     public CmdDataframe hopWindow(String timeCol, String slide, String sUnit, String size, String wUnit, String... offsetAndUnit) {
-        String offset = offsetAndUnit != null && offsetAndUnit.length > 0 ? offsetAndUnit[0] : null;
-        String offsetUnit = offsetAndUnit != null && offsetAndUnit.length > 1 ? offsetAndUnit[1] : null;
-        return new CmdDataframeImpl(new HopWindowOperator(operator, timeCol, slide, sUnit, size, wUnit, offset, offsetUnit), executionEngine);
+        String[] offset = parseWindowOffset(offsetAndUnit);
+        return new CmdDataframeImpl(new HopWindowOperator(operator, timeCol, slide, sUnit, size, wUnit, offset[0], offset[1]), executionEngine);
     }
 
     @Override
     public CmdDataframe cumulateWindow(String timeCol, String step, String stepUnit, String max, String maxUnit, String... offsetAndUnit) {
-        String offset = offsetAndUnit != null && offsetAndUnit.length > 0 ? offsetAndUnit[0] : null;
-        String offsetUnit = offsetAndUnit != null && offsetAndUnit.length > 1 ? offsetAndUnit[1] : null;
-        return new CmdDataframeImpl(new CumulateWindowOperator(operator, timeCol, step, stepUnit, max, maxUnit, offset, offsetUnit), executionEngine);
+        String[] offset = parseWindowOffset(offsetAndUnit);
+        return new CmdDataframeImpl(new CumulateWindowOperator(operator, timeCol, step, stepUnit, max, maxUnit, offset[0], offset[1]), executionEngine);
     }
 
     @Override
