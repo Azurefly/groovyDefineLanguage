@@ -43,7 +43,7 @@ public class DriftTest {
         assertThat(plan.getAllCuts()).hasSize(1);
         assertThat(plan.getAllCuts().get(0).getSourceAreaCode()).isEqualTo("320100");
         assertThat(plan.getAllCuts().get(0).getTargetAreaCode()).isEqualTo("320000");
-        assertThat(plan.getAllCuts().get(0).getIntermediateTableName()).startsWith("tre_temp_");
+        assertThat(plan.getAllCuts().get(0).getIntermediateTableName()).startsWith("gdl_temp_");
 
         SubgraphScriptGenerator generator = new SubgraphScriptGenerator();
         generator.generateScripts(plan);
@@ -59,7 +59,7 @@ public class DriftTest {
     public void testIntermediateTableLifecycle() {
         IntermediateTableManager mgr = IntermediateTableManager.getInstance();
         String tempTable = mgr.generateTempTableName();
-        assertThat(tempTable).startsWith("tre_temp_");
+        assertThat(tempTable).startsWith("gdl_temp_");
         assertThat(mgr.getActiveTempTables()).contains(tempTable);
 
         mgr.release(tempTable);
@@ -86,7 +86,7 @@ public class DriftTest {
         assertThat(plan.requiresRemoteDrift()).isTrue();
         assertThat(plan.remoteExchanges()).hasSize(1);
         String tempTable = plan.remoteExchanges().get(0).intermediateTableName();
-        assertThat(tempTable).startsWith("tre_temp_");
+        assertThat(tempTable).startsWith("gdl_temp_");
         IntermediateTableManager.getInstance().release(tempTable);
     }
 

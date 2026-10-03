@@ -43,7 +43,7 @@ public class TaskResult implements Serializable {
 
     public static class AreaResult implements Serializable {
         private String areaCode;
-        private String code = "TRE_2000";
+        private String code = "GDL_2000";
         private String msg = "成功";
         private List<Map<String, Object>> data = new ArrayList<>();
         private List<ColumnInfo> metadata = new ArrayList<>();

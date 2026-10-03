@@ -114,11 +114,11 @@ Execution
 - 依据数据源的 `areaCode`，自动分析全图亲和性
 - 遇到跨地域边时，自动将 DAG 图切割为本地执行子图与远端执行子图（规划能力已实现）
 - `driftTo().attach()` 的跨地域数据传输执行层当前尚未实现（调用抛 `UnsupportedOperationException`）；`driftFrom()` 当前退化为普通 `from()` 查询
-- 传输使用 `tre_temp_{uuid}_{timestamp}` 临时表命名规范（中间表物理建表/清理的负责人待明确）
+- 传输使用 `gdl_temp_{uuid}_{timestamp}` 临时表命名规范（中间表物理建表/清理的负责人待明确）
 
 ### 5. 第三方远程调用与服务化支持
 - **独立 HTTP 服务**：内置高可用 HTTP 服务，通过 `./bin/start-server.sh <port> [token]` 启动
-  - 安全默认：鉴权默认开启。启动时传入 `token` 即启用鉴权（请求头 `tre-token`）；未传 `token` 则进入 open 模式并打印醒目警告，仅建议本地调试使用
+  - 安全默认：鉴权默认开启。启动时传入 `token` 即启用鉴权（请求头 `gdl-token`）；未传 `token` 则进入 open 模式并打印醒目警告，仅建议本地调试使用
 - **Java 远程 SDK**：提供 `GdlHttpEngineClient` 实现透明 RPC 远程调用
 - **HTTP RESTful API**：支持各类第三方系统（Python, Go, Node.js 等）通过 HTTP 接口触发任务计算、查询结果与注册本体
 - **MCP 协议支持**：支持 Model Context Protocol，暴露 `start_task`、`get_task_result` 工具方法，方便 AI Agent / 大模型客户端（CherryStudio、Claude、Dify 等）直接调度

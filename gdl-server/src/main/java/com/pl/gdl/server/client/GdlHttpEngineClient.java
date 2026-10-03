@@ -20,7 +20,7 @@ import java.util.*;
 
 /**
  * {@link GdlEngineClient} 的远程 HTTP 实现，通过 {@link HttpTransport} 调用远端
- * GDL 引擎远程服务的 {@code /tre/api/*} 接口（路径保留历史命名以兼容）。
+ * GDL 引擎远程服务的 {@code /gdl/api/*} 接口。
  *
  * <p>远端接口返回的 JSON 字段存在历史兼容差异（如 {@code msg}/{@code message}、
  * {@code result}/{@code data}），本类在解析时做了兼容处理；所有从 JSON 取出的
@@ -71,7 +71,7 @@ public class GdlHttpEngineClient implements GdlEngineClient {
     @Override
     public RegisterRsp registerOntology(String gdl) {
         Map<String, Object> payload = Map.of("gdl", gdl != null ? gdl : "");
-        String resp = sendRequest("POST", "/tre/api/registerOntology", null, JsonOutput.toJson(payload));
+        String resp = sendRequest("POST", "/gdl/api/registerOntology", null, JsonOutput.toJson(payload));
         Object parsed = new JsonSlurper().parseText(resp);
         if (parsed instanceof Map<?, ?> map) {
             int status = map.containsKey("status") ? ((Number) map.get("status")).intValue() : 0;
@@ -105,7 +105,7 @@ public class GdlHttpEngineClient implements GdlEngineClient {
     @Override
     public RegisterRsp unregisterOntology(String names) {
         Map<String, Object> payload = Map.of("names", names != null ? names : "");
-        String resp = sendRequest("POST", "/tre/api/unregisterOntology", null, JsonOutput.toJson(payload));
+        String resp = sendRequest("POST", "/gdl/api/unregisterOntology", null, JsonOutput.toJson(payload));
         Object parsed = new JsonSlurper().parseText(resp);
         if (parsed instanceof Map<?, ?> map) {
             int status = map.containsKey("status") ? ((Number) map.get("status")).intValue() : 0;
@@ -147,7 +147,7 @@ public class GdlHttpEngineClient implements GdlEngineClient {
             query.append("areaCode=").append(URLEncoder.encode(areaCode, StandardCharsets.UTF_8));
         }
 
-        String resp = sendRequest("GET", "/tre/api/getOntologies", query.toString(), null);
+        String resp = sendRequest("GET", "/gdl/api/getOntologies", query.toString(), null);
         Object parsed = new JsonSlurper().parseText(resp);
         List<OntoInfoRsp> result = new ArrayList<>();
         if (parsed instanceof Map<?, ?> map && map.get("data") instanceof List<?> list) {
@@ -186,7 +186,7 @@ public class GdlHttpEngineClient implements GdlEngineClient {
         payload.put("code", gdlScript);
         payload.put("params", params != null ? params : Map.of());
 
-        String resp = sendRequest("POST", "/tre/api/startTask", null, JsonOutput.toJson(payload));
+        String resp = sendRequest("POST", "/gdl/api/startTask", null, JsonOutput.toJson(payload));
         Object parsed = new JsonSlurper().parseText(resp);
         if (parsed instanceof Map<?, ?> map && map.containsKey("taskId")) {
             return stringValue(map.get("taskId"));
@@ -200,7 +200,7 @@ public class GdlHttpEngineClient implements GdlEngineClient {
             throw new IllegalArgumentException("taskId cannot be null or blank");
         }
         String query = "taskId=" + URLEncoder.encode(taskId, StandardCharsets.UTF_8);
-        String resp = sendRequest("GET", "/tre/api/getTaskResult", query, null);
+        String resp = sendRequest("GET", "/gdl/api/getTaskResult", query, null);
         Object parsed = new JsonSlurper().parseText(resp);
         if (parsed instanceof Map<?, ?> map) {
             TaskResult tr = new TaskResult();
@@ -219,9 +219,9 @@ public class GdlHttpEngineClient implements GdlEngineClient {
     }
 
     @Override
-    public String getTsmlToDag(String gdlScript) {
+    public String getGmlToDag(String gdlScript) {
         Map<String, Object> payload = Map.of("code", gdlScript != null ? gdlScript : "");
-        return sendRequest("POST", "/tre/api/getTsmlToDag", null, JsonOutput.toJson(payload));
+        return sendRequest("POST", "/gdl/api/getGmlToDag", null, JsonOutput.toJson(payload));
     }
 
     // --- Low-level HTTP Transport Delegation ---
@@ -231,7 +231,7 @@ public class GdlHttpEngineClient implements GdlEngineClient {
             HttpRequest req = new HttpRequest(method, path, jsonBody);
             req.setQuery(query);
             if (token != null && !token.isBlank()) {
-                req.addHeader("tre-token", token);
+                req.addHeader("gdl-token", token);
             }
             if (jsonBody != null && !jsonBody.isBlank()) {
                 req.addHeader("Content-Type", "application/json; charset=UTF-8");
@@ -303,7 +303,7 @@ public class GdlHttpEngineClient implements GdlEngineClient {
             TaskResult.AreaResult ar = new TaskResult.AreaResult();
             ar.setAreaCode(stringValue(m.get("areaCode")));
             String code = stringValue(m.get("code"));
-            ar.setCode(code != null ? code : "TRE_2000");
+            ar.setCode(code != null ? code : "GDL_2000");
             String msg = firstNonBlank(stringValue(m.get("msg")), stringValue(m.get("message")));
             ar.setMsg(msg != null ? msg : "成功");
             ar.setData(parseDataRows(m.get("data")));

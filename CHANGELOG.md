@@ -41,7 +41,7 @@
 - `SqlSanitizer` 强化：标准 SQL 双引号标识符引用（doubling 转义）、`isValidIdentifier` 白名单、`escapeLiteral`
 - `InMemoryEngine` DDL 表名/列名白名单校验（防拼接注入）；`CommonIncrementVar` 字段名白名单 + 字面量转义；
   Ontology DDL 生成器标识符转义
-- `TreClientImpl.startTask` 改为真异步执行，任务结果带 TTL（30 分钟）与数量上限（1000），防内存泄漏
+- `GdlClientImpl.startTask` 改为真异步执行，任务结果带 TTL（30 分钟）与数量上限（1000），防内存泄漏
 
 ### 修复
 - `InMemoryEngine.execute` 不再吞掉所有 SQL 异常：仅"表不存在"返回空 DataFrame，其余抛 `GdlExecutionException`
@@ -59,7 +59,7 @@
 - 文档统一收拢至 `docs/`（GDL 语法指南、TSML 手册、远程 API 指南）
 - 新增 GitHub Issue / PR 模板
 - 补齐各模块公开 API 的中文 Javadoc；新增 `SqlSanitizerTest`、`TaskResultTest`、沙箱拦截测试、
-  方言/SQL 生成测试、`TreClientTest` 异步与鉴权用例等，全量 85 个测试通过
+  方言/SQL 生成测试、`GdlClientTest` 异步与鉴权用例等，全量 85 个测试通过
 
 ### 变更
 - `bin/start-server.sh` 改写：不再依赖作者本机 Maven 仓库硬编码路径，改为 Maven 构建 classpath
@@ -78,5 +78,5 @@
 - 跨地域漂移（Drift）：DAG 亲和性分析、子图切割、`driftTo`/`driftFrom` 自动注入、临时表自动清理
 - 本体（Ontology）系统：`@Table`/`@Column` 注解、动态类加载热加载、DDL 生成与 CRUD
 - 动态变量体系：`CurrentTimeVar`、`CommonIncrementVar`、BDOS 分区增量系列变量
-- 服务化：内置 HTTP 服务、Java 远程 SDK（`TreRemoteHttpClient`）、HTTP REST API、MCP 工具（`start_task` / `get_task_result` / `get_tsml_to_dag`）
+- 服务化：内置 HTTP 服务、Java 远程 SDK（`TreRemoteHttpClient`）、HTTP REST API、MCP 工具（`start_task` / `get_task_result` / `get_gml_to_dag`）
 - GitHub Actions CI：`mvn -B -ntp verify`

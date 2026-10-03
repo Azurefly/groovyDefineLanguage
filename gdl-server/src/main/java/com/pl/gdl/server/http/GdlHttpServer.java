@@ -34,19 +34,19 @@ import java.util.concurrent.TimeUnit;
  * <p>同时承担两类职责：</p>
  * <ul>
  *   <li>基于 JDK 内置 {@code HttpServer} 的物理 socket 监听，对外提供
- *       {@code /tre/api/*} REST 接口与 {@code /tre/mcp/service} MCP 接口；</li>
+ *       {@code /gdl/api/*} REST 接口与 {@code /gdl/mcp/service} MCP 接口；</li>
  *   <li>通过 {@link #handleDirect(HttpRequest)} 提供进程内请求分发，
  *       供 {@link InProcessHttpTransport} 在无法绑定 socket 的受限环境下使用。</li>
  * </ul>
  *
- * <p>除 {@code /tre/api/health} 健康检查外，所有接口默认要求请求头
- * {@code tre-token} 与配置一致（见 {@link ServerConfig}），否则返回 401。</p>
+ * <p>除 {@code /gdl/api/health} 健康检查外，所有接口默认要求请求头
+ * {@code gdl-token} 与配置一致（见 {@link ServerConfig}），否则返回 401。</p>
  */
 public class GdlHttpServer {
     private static final Logger log = LoggerFactory.getLogger(GdlHttpServer.class);
 
     private final ServerConfig config;
-    private final GdlEngineClient treClient;
+    private final GdlEngineClient gdlClient;
     private final McpToolRegistry mcpRegistry;
     private HttpServer server;
     private ExecutorService executor;
@@ -70,12 +70,12 @@ public class GdlHttpServer {
      * 使用指定配置与任务客户端构造服务端。
      *
      * @param config    服务配置，{@code null} 时使用默认配置
-     * @param treClient 任务执行客户端，{@code null} 时使用默认的本地实现
+     * @param gdlClient 任务执行客户端，{@code null} 时使用默认的本地实现
      */
-    public GdlHttpServer(ServerConfig config, GdlEngineClient treClient) {
+    public GdlHttpServer(ServerConfig config, GdlEngineClient gdlClient) {
         this.config = config != null ? config : new ServerConfig();
-        this.treClient = treClient != null ? treClient : new GdlEngineClientImpl();
-        this.mcpRegistry = new McpToolRegistry(this.treClient);
+        this.gdlClient = gdlClient != null ? gdlClient : new GdlEngineClientImpl();
+        this.mcpRegistry = new McpToolRegistry(this.gdlClient);
     }
 
     /**
@@ -98,14 +98,14 @@ public class GdlHttpServer {
 
             // 所有路径共用同一个无状态 DirectHandler（DU-01）；handleDirect 按路径做路由与鉴权
             HttpHandler directHandler = new DirectHandler();
-            server.createContext("/tre/api/health", directHandler);
-            server.createContext("/tre/api/getOntologies", directHandler);
-            server.createContext("/tre/api/registerOntology", directHandler);
-            server.createContext("/tre/api/unregisterOntology", directHandler);
-            server.createContext("/tre/api/startTask", directHandler);
-            server.createContext("/tre/api/getTaskResult", directHandler);
-            server.createContext("/tre/api/getTsmlToDag", directHandler);
-            server.createContext("/tre/mcp/service", directHandler);
+            server.createContext("/gdl/api/health", directHandler);
+            server.createContext("/gdl/api/getOntologies", directHandler);
+            server.createContext("/gdl/api/registerOntology", directHandler);
+            server.createContext("/gdl/api/unregisterOntology", directHandler);
+            server.createContext("/gdl/api/startTask", directHandler);
+            server.createContext("/gdl/api/getTaskResult", directHandler);
+            server.createContext("/gdl/api/getGmlToDag", directHandler);
+            server.createContext("/gdl/mcp/service", directHandler);
 
             this.server.start();
             log.info("GDL HTTP Server listening on http://{}:{}", config.getHost(), getPort());
@@ -140,7 +140,7 @@ public class GdlHttpServer {
                 this.executor = null;
             }
         }
-        if (this.treClient instanceof GdlEngineClientImpl impl) {
+        if (this.gdlClient instanceof GdlEngineClientImpl impl) {
             impl.close();
         }
         this.running = false;
@@ -177,7 +177,7 @@ public class GdlHttpServer {
      * @return {@link GdlEngineClient} 实例
      */
     public GdlEngineClient getGdlEngineClient() {
-        return treClient;
+        return gdlClient;
     }
 
     /**
@@ -195,7 +195,7 @@ public class GdlHttpServer {
      * 进程内请求分发入口：不经过 socket，直接按路径路由到各接口逻辑。
      *
      * <p>处理流程：健康检查接口直接放行；其余接口先做 token 鉴权
-     * （{@code tre-token} 请求头与配置一致，否则 401），再按路径分发到
+     * （{@code gdl-token} 请求头与配置一致，否则 401），再按路径分发到
      * 本体注册/查询、任务提交/查询、GML 转 DAG、MCP 服务等分支。</p>
      *
      * @param req 进程内请求
@@ -213,7 +213,7 @@ public class GdlHttpServer {
         }
 
         // Health check always public
-        if ("/tre/api/health".equals(path)) {
+        if ("/gdl/api/health".equals(path)) {
             return jsonResponse(200, Map.of(
                     "status", "UP",
                     "service", "GDL Engine",
@@ -224,11 +224,11 @@ public class GdlHttpServer {
 
         // Check authentication for other endpoints
         if (config.isRequireToken()) {
-            String token = req.getHeader("tre-token");
+            String token = req.getHeader("gdl-token");
             if (token == null || !token.equals(config.getToken())) {
                 HttpResponse res = new HttpResponse(401, JsonOutput.toJson(Map.of(
                         "code", -1,
-                        "msg", "Unauthorized: Invalid or missing 'tre-token' header",
+                        "msg", "Unauthorized: Invalid or missing 'gdl-token' header",
                         "success", false
                 )));
                 res.addHeader("Content-Type", "application/json; charset=UTF-8");
@@ -237,7 +237,7 @@ public class GdlHttpServer {
         }
 
         try {
-            if ("/tre/api/getOntologies".equals(path)) {
+            if ("/gdl/api/getOntologies".equals(path)) {
                 if (!"GET".equalsIgnoreCase(req.getMethod())) {
                     return jsonResponse(405, Map.of("code", -1, "msg", "Method Not Allowed"));
                 }
@@ -245,14 +245,14 @@ public class GdlHttpServer {
                 String names = query.get("fullOntologyNames");
                 String areaCode = query.getOrDefault("areaCode", "local");
 
-                List<OntoInfoRsp> ontos = treClient.getOntologies(names, areaCode);
+                List<OntoInfoRsp> ontos = gdlClient.getOntologies(names, areaCode);
                 Map<String, Object> resp = new LinkedHashMap<>();
                 resp.put("code", 0);
                 resp.put("msg", "操作成功");
                 resp.put("data", ontos);
                 resp.put("success", true);
                 return jsonResponse(200, resp);
-            } else if ("/tre/api/registerOntology".equals(path)) {
+            } else if ("/gdl/api/registerOntology".equals(path)) {
                 if (!"POST".equalsIgnoreCase(req.getMethod())) {
                     return jsonResponse(405, Map.of("code", -1, "msg", "Method Not Allowed"));
                 }
@@ -267,7 +267,7 @@ public class GdlHttpServer {
                 // 本体校验失败属于客户端错误，返回 400 而非兜底 500
                 RegisterRsp regRsp;
                 try {
-                    regRsp = treClient.registerOntology(gdlContent);
+                    regRsp = gdlClient.registerOntology(gdlContent);
                 } catch (OntologyValidationException ve) {
                     log.warn("registerOntology validation failed: {}", ve.getMessage());
                     return jsonResponse(400, Map.of("code", -1, "msg", ve.getMessage(), "success", false));
@@ -279,7 +279,7 @@ public class GdlHttpServer {
                 resp.put("data", regRsp.getData());
                 resp.put("success", regRsp.getStatus() == RegisterRsp.STATUS_SUCCESS);
                 return jsonResponse(regRsp.getStatus() == RegisterRsp.STATUS_SUCCESS ? 200 : 400, resp);
-            } else if ("/tre/api/unregisterOntology".equals(path)) {
+            } else if ("/gdl/api/unregisterOntology".equals(path)) {
                 if (!"POST".equalsIgnoreCase(req.getMethod())) {
                     return jsonResponse(405, Map.of("code", -1, "msg", "Method Not Allowed"));
                 }
@@ -291,9 +291,9 @@ public class GdlHttpServer {
                     }
                 } catch (Exception e) { log.debug("unregisterOntology: request body is not JSON, treating as raw names: {}", e.toString()); }
 
-                RegisterRsp unregRsp = treClient.unregisterOntology(names);
+                RegisterRsp unregRsp = gdlClient.unregisterOntology(names);
                 return jsonResponse(200, unregRsp);
-            } else if ("/tre/api/startTask".equals(path)) {
+            } else if ("/gdl/api/startTask".equals(path)) {
                 if (!"POST".equalsIgnoreCase(req.getMethod())) {
                     return jsonResponse(405, Map.of("code", -1, "msg", "Method Not Allowed"));
                 }
@@ -321,7 +321,7 @@ public class GdlHttpServer {
                     return jsonResponse(400, Map.of("code", -1, "msg", "GDL script code cannot be empty"));
                 }
 
-                String taskId = treClient.startTask(code, params);
+                String taskId = gdlClient.startTask(code, params);
                 Map<String, Object> resp = new LinkedHashMap<>();
                 resp.put("code", 0);
                 resp.put("msg", "任务提交成功");
@@ -329,7 +329,7 @@ public class GdlHttpServer {
                 resp.put("status", "SUBMITTED");
                 resp.put("success", true);
                 return jsonResponse(200, resp);
-            } else if ("/tre/api/getTaskResult".equals(path)) {
+            } else if ("/gdl/api/getTaskResult".equals(path)) {
                 if (!"GET".equalsIgnoreCase(req.getMethod())) {
                     return jsonResponse(405, Map.of("code", -1, "msg", "Method Not Allowed"));
                 }
@@ -339,7 +339,7 @@ public class GdlHttpServer {
                     return jsonResponse(400, Map.of("code", -1, "msg", "taskId is required"));
                 }
 
-                TaskResult tr = treClient.getTaskResult(taskId);
+                TaskResult tr = gdlClient.getTaskResult(taskId);
                 if (tr == null) {
                     return jsonResponse(404, Map.of("code", -1, "msg", "Task not found: " + taskId));
                 }
@@ -352,7 +352,7 @@ public class GdlHttpServer {
                 resp.put("result", tr.getResult());
                 resp.put("success", true);
                 return jsonResponse(200, resp);
-            } else if ("/tre/api/getTsmlToDag".equals(path)) {
+            } else if ("/gdl/api/getGmlToDag".equals(path)) {
                 if (!"POST".equalsIgnoreCase(req.getMethod())) {
                     return jsonResponse(405, Map.of("code", -1, "msg", "Method Not Allowed"));
                 }
@@ -362,13 +362,13 @@ public class GdlHttpServer {
                     if (parsed instanceof Map<?, ?> map && map.containsKey("code")) {
                         code = (String) map.get("code");
                     }
-                } catch (Exception e) { log.debug("getTsmlToDag: request body is not JSON, treating as raw GDL code: {}", e.toString()); }
+                } catch (Exception e) { log.debug("getGmlToDag: request body is not JSON, treating as raw GDL code: {}", e.toString()); }
 
-                String dagJson = treClient.getTsmlToDag(code);
+                String dagJson = gdlClient.getGmlToDag(code);
                 HttpResponse res = new HttpResponse(200, dagJson);
                 res.addHeader("Content-Type", "application/json; charset=UTF-8");
                 return res;
-            } else if ("/tre/mcp/service".equals(path)) {
+            } else if ("/gdl/mcp/service".equals(path)) {
                 if ("GET".equalsIgnoreCase(req.getMethod())) {
                     return jsonResponse(200, Map.of("tools", getToolDescriptors()));
                 }
@@ -430,7 +430,7 @@ public class GdlHttpServer {
 
     /**
      * 构建 MCP 工具描述符列表（DU-02 去重）。
-     * GET /tre/mcp/service 与 POST tools/list 共用此方法；
+     * GET /gdl/mcp/service 与 POST tools/list 共用此方法；
      * 两者的协议外壳（{"tools":[...]} vs {"result":{"tools":[...]}}）保持各自原样，不做统一。
      */
     private List<Map<String, Object>> getToolDescriptors() {
@@ -489,7 +489,7 @@ public class GdlHttpServer {
      * 统一的 HTTP 请求处理器（DU-01 去重）。
      * 原 8 个内部类（HealthHandler、GetOntologiesHandler、RegisterOntologyHandler、
      * UnregisterOntologyHandler、StartTaskHandler、GetTaskResultHandler、
-     * GetTsmlToDagHandler（历史命名，保持兼容）、McpServiceHandler）的 handle 方法完全相同，
+     * GetGmlToDagHandler、McpServiceHandler）的 handle 方法完全相同，
      * 均委托 handleDirect 按请求路径路由，因此合并为一个无状态共享实例。
      * 路径注册、线程语义、鉴权、413 行为均保持不变。
      */

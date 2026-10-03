@@ -20,9 +20,9 @@ GDL（GroovyDefine Language）引擎提供了完善的远程调用支持，允�
 ```
 =============================================================
  GDL Engine Remote Service running at http://localhost:8080
- HTTP REST API: http://localhost:8080/tre/api/...
- MCP Tool API:  http://localhost:8080/tre/mcp/service
- Health Check:  http://localhost:8080/tre/api/health
+ HTTP REST API: http://localhost:8080/gdl/api/...
+ MCP Tool API:  http://localhost:8080/gdl/mcp/service
+ Health Check:  http://localhost:8080/gdl/api/health
  Token Auth:    ENABLED / DISABLED
 =============================================================
 ```
@@ -109,7 +109,7 @@ for (OntoInfoRsp info : ontos) {
 ### 4. 远程提取 DAG 画布拓扑
 
 ```java
-String dagJson = client.getTsmlToDag(script);
+String dagJson = client.getGmlToDag(script);
 System.out.println("DAG 拓扑 JSON: " + dagJson);
 ```
 
@@ -117,11 +117,11 @@ System.out.println("DAG 拓扑 JSON: " + dagJson);
 
 ## 三、第三方通用 HTTP REST API 接口文档
 
-对于非 Java 服务（Python、Go、Node.js、微服务等），可通过标准 HTTP/JSON 接口进行集成。若服务端启用了 Token 认证，需在请求头携带 `tre-token: <your-token>`。
+对于非 Java 服务（Python、Go、Node.js、微服务等），可通过标准 HTTP/JSON 接口进行集成。若服务端启用了 Token 认证，需在请求头携带 `gdl-token: <your-token>`。
 
 ### 1. 服务健康检查
 
-- **请求**：`GET /tre/api/health`
+- **请求**：`GET /gdl/api/health`
 - **说明**：无需鉴权，用于健康探测与服务发现
 - **响应**：
 ```json
@@ -137,10 +137,10 @@ System.out.println("DAG 拓扑 JSON: " + dagJson);
 
 ### 2. 提交 GDL 任务 (startTask)
 
-- **请求**：`POST /tre/api/startTask`
+- **请求**：`POST /gdl/api/startTask`
 - **Headers**：
   - `Content-Type: application/json`
-  - `tre-token: <token>`（可选）
+  - `gdl-token: <token>`（可选）
 - **请求体 (Body)**：
 ```json
 {
@@ -153,9 +153,9 @@ System.out.println("DAG 拓扑 JSON: " + dagJson);
 ```
 - **cURL 示例**：
 ```bash
-curl -X POST http://localhost:8080/tre/api/startTask \
+curl -X POST http://localhost:8080/gdl/api/startTask \
      -H "Content-Type: application/json" \
-     -H "tre-token: my-secret-token-123" \
+     -H "gdl-token: my-secret-token-123" \
      -d '{"code":"def hiveDs = hive()\\ndef df = from(hiveDs, \"t_person\").select(\"id, name\")\\nreturnDf(df)"}'
 ```
 - **响应**：
@@ -173,12 +173,12 @@ curl -X POST http://localhost:8080/tre/api/startTask \
 
 ### 3. 获取任务结果 (getTaskResult)
 
-- **请求**：`GET /tre/api/getTaskResult?taskId=<taskId>`
-- **Headers**：`tre-token: <token>`
+- **请求**：`GET /gdl/api/getTaskResult?taskId=<taskId>`
+- **Headers**：`gdl-token: <token>`
 - **cURL 示例**：
 ```bash
-curl -X GET "http://localhost:8080/tre/api/getTaskResult?taskId=c92e92c2a01d4a69b763e0018d998124" \
-     -H "tre-token: my-secret-token-123"
+curl -X GET "http://localhost:8080/gdl/api/getTaskResult?taskId=c92e92c2a01d4a69b763e0018d998124" \
+     -H "gdl-token: my-secret-token-123"
 ```
 - **响应**：
 ```json
@@ -190,7 +190,7 @@ curl -X GET "http://localhost:8080/tre/api/getTaskResult?taskId=c92e92c2a01d4a69
   "result": [
     {
       "areaCode": "320100",
-      "code": "TRE_2000",
+      "code": "GDL_2000",
       "msg": "成功",
       "data": [
         {"id": "1", "name": "张三", "age": 25},
@@ -211,7 +211,7 @@ curl -X GET "http://localhost:8080/tre/api/getTaskResult?taskId=c92e92c2a01d4a69
 
 ### 4. 注册本体 (registerOntology)
 
-- **请求**：`POST /tre/api/registerOntology`
+- **请求**：`POST /gdl/api/registerOntology`
 - **请求体 (Body)**：
 ```json
 {
@@ -235,7 +235,7 @@ curl -X GET "http://localhost:8080/tre/api/getTaskResult?taskId=c92e92c2a01d4a69
 
 ### 5. 查询本体信息 (getOntologies)
 
-- **请求**：`GET /tre/api/getOntologies?fullOntologyNames=v1.WxChat&areaCode=320100`
+- **请求**：`GET /gdl/api/getOntologies?fullOntologyNames=v1.WxChat&areaCode=320100`
 - **响应**：
 ```json
 {
@@ -262,9 +262,9 @@ curl -X GET "http://localhost:8080/tre/api/getTaskResult?taskId=c92e92c2a01d4a69
 
 ---
 
-### 6. GDL 脚本转 DAG 画布图 (getTsmlToDag)
+### 6. GDL 脚本转 DAG 画布图 (getGmlToDag)
 
-- **请求**：`POST /tre/api/getTsmlToDag`
+- **请求**：`POST /gdl/api/getGmlToDag`
 - **请求体 (Body)**：
 ```json
 {
@@ -298,7 +298,7 @@ import requests
 SERVER_URL = "http://localhost:8080"
 HEADERS = {
     "Content-Type": "application/json",
-    "tre-token": "my-secret-token-123"
+    "gdl-token": "my-secret-token-123"
 }
 
 # 1. 提交 GDL 计算任务
@@ -311,13 +311,13 @@ def df = from(hiveDs, "dw.t_device_log")
 returnDf(df)
 """
 
-resp = requests.post(f"{SERVER_URL}/tre/api/startTask", json={"code": script}, headers=HEADERS)
+resp = requests.post(f"{SERVER_URL}/gdl/api/startTask", json={"code": script}, headers=HEADERS)
 task_info = resp.json()
 print("提交结果:", task_info)
 task_id = task_info["taskId"]
 
 # 2. 查询结果
-res_resp = requests.get(f"{SERVER_URL}/tre/api/getTaskResult?taskId={task_id}", headers=HEADERS)
+res_resp = requests.get(f"{SERVER_URL}/gdl/api/getTaskResult?taskId={task_id}", headers=HEADERS)
 print("计算结果:", res_resp.json())
 ```
 
@@ -325,15 +325,15 @@ print("计算结果:", res_resp.json())
 
 ## 五、AI Agent / 大模型平台集成方式 (MCP 协议)
 
-GDL 引擎原生集成了 **Model Context Protocol (MCP)** 流式 HTTP 接口：`POST /tre/mcp/service`。
+GDL 引擎原生集成了 **Model Context Protocol (MCP)** 流式 HTTP 接口：`POST /gdl/mcp/service`。
 任何支持 MCP 的平台（CherryStudio、Claude Desktop、Dify、Coze、LangChain 等）都可以直接将其配置为 MCP Server 工具源：
 
 ### 1. 配置 MCP Server 地址
-- **URL**：`http://[IP]:[PORT]/tre/mcp/service`
+- **URL**：`http://[IP]:[PORT]/gdl/mcp/service`
 - **Transport**：`Streamable HTTP` / `JSON-RPC`
-- **Headers**：`{"tre-token": "my-secret-token-123"}`
+- **Headers**：`{"gdl-token": "my-secret-token-123"}`
 
 ### 2. 支持的 MCP 工具列表
 1. `start_task`：接收大模型生成的 GDL 脚本，调度执行。
 2. `get_task_result`：根据 taskId 获取执行详情与数据表格。
-3. `get_tsml_to_dag`：将 GML 脚本转为可视化 DAG 图点线边拓扑，供前端画布动态渲染展示（工具名为历史命名，保持兼容）。
+3. `get_gml_to_dag`：将 GML 脚本转为可视化 DAG 图点线边拓扑，供前端画布动态渲染展示（工具名为历史命名，保持兼容）。

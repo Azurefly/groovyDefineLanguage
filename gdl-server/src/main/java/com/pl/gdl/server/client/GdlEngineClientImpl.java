@@ -131,7 +131,7 @@ public class GdlEngineClientImpl implements GdlEngineClient {
     }
 
     @Override
-    public String getTsmlToDag(String gdlScript) {
+    public String getGmlToDag(String gdlScript) {
         DagGraph dag = compiler.parseToDag(gdlScript, Map.of());
         return DagSerializer.toJson(dag);
     }

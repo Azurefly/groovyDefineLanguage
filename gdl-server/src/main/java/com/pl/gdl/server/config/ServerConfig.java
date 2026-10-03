@@ -7,7 +7,7 @@ import java.io.Serializable;
  *
  * <p><b>安全语义（鉴权默认开启）：</b>自本版本起 {@code requireToken} 默认值为
  * {@code true}，遵循"默认安全"原则——除非调用方显式关闭，否则所有非健康检查接口都要求
- * 请求头 {@code tre-token} 与配置的 token 一致，否则返回 401。</p>
+ * 请求头 {@code gdl-token} 与配置的 token 一致，否则返回 401。</p>
  *
  * <ul>
  *   <li>{@code new ServerConfig()} / {@code new ServerConfig(port)}：鉴权默认开启，但 token

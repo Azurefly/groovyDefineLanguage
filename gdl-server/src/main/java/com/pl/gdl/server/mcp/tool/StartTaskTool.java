@@ -13,10 +13,10 @@ import java.util.Map;
  * 工具轮询执行结果。</p>
  */
 public class StartTaskTool implements McpTool {
-    private final GdlEngineClient treClient;
+    private final GdlEngineClient gdlClient;
 
-    public StartTaskTool(GdlEngineClient treClient) {
-        this.treClient = treClient;
+    public StartTaskTool(GdlEngineClient gdlClient) {
+        this.gdlClient = gdlClient;
     }
 
     @Override
@@ -64,7 +64,7 @@ public class StartTaskTool implements McpTool {
             }
         }
 
-        String taskId = treClient.startTask(code, paramMap);
+        String taskId = gdlClient.startTask(code, paramMap);
         return Map.of("taskId", taskId, "status", "SUBMITTED");
     }
 }

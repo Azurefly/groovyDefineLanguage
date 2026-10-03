@@ -14,7 +14,7 @@ import java.util.Map;
  * <ul>
  *   <li>{@link GdlEngineClientImpl}——本地进程内实现，直接调用各引擎模块；</li>
  *   <li>{@link GdlHttpEngineClient}——远程 HTTP 实现，调用远端服务的
- *       {@code /tre/api/*} 接口。</li>
+ *       {@code /gdl/api/*} 接口。</li>
  * </ul>
  *
  * <p>任务提交均为异步语义：{@link #startTask(String, Map)} 立即返回 taskId，
@@ -92,10 +92,10 @@ public interface GdlEngineClient {
 
     /**
      * 将 GDL 脚本解析为 DAG 并返回其 JSON 表示。
-     * <p>注：方法名中的 {@code Tsml} 为历史命名，保持 API 兼容；概念上为 GML（GDL 模型语言）转 DAG。</p>
+     * <p>将 GML（GDL 模型语言）脚本解析为 DAG。</p>
      *
      * @param gdlScript GDL 脚本
      * @return DAG 的 JSON 字符串
      */
-    String getTsmlToDag(String gdlScript);
+    String getGmlToDag(String gdlScript);
 }

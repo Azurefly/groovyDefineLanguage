@@ -77,7 +77,7 @@ public class GdlEngineClientTest {
         assertThat(result.getStatus()).isEqualTo(TaskStatus.FINISHED);
 
         // 3. Get DAG
-        String dagJson = client.getTsmlToDag(script);
+        String dagJson = client.getGmlToDag(script);
         assertThat(dagJson).contains("\"canvas\"");
         assertThat(dagJson).contains("FromOperator");
     }
@@ -152,8 +152,8 @@ public class GdlEngineClientTest {
         Object resultRes = mcpRegistry.executeTool("get_task_result", Map.of("taskId", taskId));
         assertThat(resultRes).isInstanceOf(TaskResult.class);
 
-        // Test get_tsml_to_dag tool
-        Object dagRes = mcpRegistry.executeTool("get_tsml_to_dag", Map.of("code", script));
+        // Test get_gml_to_dag tool
+        Object dagRes = mcpRegistry.executeTool("get_gml_to_dag", Map.of("code", script));
         assertThat(dagRes.toString()).contains("\"canvas\"");
     }
 }

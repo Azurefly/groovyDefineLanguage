@@ -49,7 +49,7 @@ public class RemoteServiceIntegrationTest {
 
     @Test
     public void testHealthCheck() throws Exception {
-        HttpRequest req = new HttpRequest("GET", "/tre/api/health", null);
+        HttpRequest req = new HttpRequest("GET", "/gdl/api/health", null);
         HttpResponse resp = transport.execute(req);
 
         assertThat(resp.getStatusCode()).isEqualTo(200);
@@ -109,11 +109,11 @@ public class RemoteServiceIntegrationTest {
             returnDf(df)
         """;
 
-        // 1. Submit GDL task remotely via HTTP POST /tre/api/startTask
+        // 1. Submit GDL task remotely via HTTP POST /gdl/api/startTask
         String taskId = remoteClient.startTask(gdlScript, Map.of("areaCode", "320100"));
         assertThat(taskId).isNotNull().isNotBlank();
 
-        // 2. Query task result remotely via HTTP GET /tre/api/getTaskResult?taskId=xxx
+        // 2. Query task result remotely via HTTP GET /gdl/api/getTaskResult?taskId=xxx
         //    任务为异步执行：轮询等待完成
         TaskResult result = null;
         long deadline = System.currentTimeMillis() + 60_000;
@@ -135,7 +135,7 @@ public class RemoteServiceIntegrationTest {
     }
 
     @Test
-    public void testRemoteGetTsmlToDag() {
+    public void testRemoteGetGmlToDag() {
         String gdlScript = """
             def hiveDs = hive()
             def df1 = from(hiveDs, "dw.t_source").nodeId("node_1")
@@ -143,7 +143,7 @@ public class RemoteServiceIntegrationTest {
             df2.to(hiveDs, "dw.t_sink").nodeId("node_3")
         """;
 
-        String dagJson = remoteClient.getTsmlToDag(gdlScript);
+        String dagJson = remoteClient.getGmlToDag(gdlScript);
         assertThat(dagJson).contains("\"canvas\"");
         assertThat(dagJson).contains("node_1");
         assertThat(dagJson).contains("node_2");
@@ -153,14 +153,14 @@ public class RemoteServiceIntegrationTest {
     @Test
     public void testMcpStreamableHttpService() throws Exception {
         // Test MCP tools/list
-        HttpRequest listReq = new HttpRequest("POST", "/tre/mcp/service", JsonOutput.toJson(Map.of("method", "tools/list")));
-        listReq.addHeader("tre-token", TEST_TOKEN);
+        HttpRequest listReq = new HttpRequest("POST", "/gdl/mcp/service", JsonOutput.toJson(Map.of("method", "tools/list")));
+        listReq.addHeader("gdl-token", TEST_TOKEN);
         HttpResponse listResp = transport.execute(listReq);
 
         assertThat(listResp.getStatusCode()).isEqualTo(200);
         assertThat(listResp.getBody()).contains("start_task");
         assertThat(listResp.getBody()).contains("get_task_result");
-        assertThat(listResp.getBody()).contains("get_tsml_to_dag");
+        assertThat(listResp.getBody()).contains("get_gml_to_dag");
 
         // Test MCP tools/call for start_task
         Map<String, Object> callReq = Map.of(
@@ -173,8 +173,8 @@ public class RemoteServiceIntegrationTest {
                 )
         );
 
-        HttpRequest execReq = new HttpRequest("POST", "/tre/mcp/service", JsonOutput.toJson(callReq));
-        execReq.addHeader("tre-token", TEST_TOKEN);
+        HttpRequest execReq = new HttpRequest("POST", "/gdl/mcp/service", JsonOutput.toJson(callReq));
+        execReq.addHeader("gdl-token", TEST_TOKEN);
         HttpResponse execResp = transport.execute(execReq);
 
         assertThat(execResp.getStatusCode()).isEqualTo(200);

@@ -6,15 +6,15 @@ import com.pl.gdl.server.mcp.McpTool;
 import java.util.Map;
 
 public class GetGmlToDagTool implements McpTool {
-    private final GdlEngineClient treClient;
+    private final GdlEngineClient gdlClient;
 
-    public GetGmlToDagTool(GdlEngineClient treClient) {
-        this.treClient = treClient;
+    public GetGmlToDagTool(GdlEngineClient gdlClient) {
+        this.gdlClient = gdlClient;
     }
 
     @Override
     public String getName() {
-        return "get_tsml_to_dag";
+        return "get_gml_to_dag";
     }
 
     @Override
@@ -39,6 +39,6 @@ public class GetGmlToDagTool implements McpTool {
         if (code == null || code.isBlank()) {
             throw new IllegalArgumentException("Parameter 'code' is mandatory");
         }
-        return treClient.getTsmlToDag(code);
+        return gdlClient.getGmlToDag(code);
     }
 }

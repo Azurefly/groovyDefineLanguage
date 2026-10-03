@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * MCP 工具注册表：集中管理对外暴露的 MCP 工具。
  *
  * <p>构造时自动注册默认工具集：{@code start_task}（提交 GDL 任务）、
- * {@code get_task_result}（查询任务结果）、{@code get_tsml_to_dag}
+ * {@code get_task_result}（查询任务结果）、{@code get_gml_to_dag}
  * （GML 转 DAG）。同时支持运行时通过 {@link #register(McpTool)} 注册自定义工具。</p>
  */
 public class McpToolRegistry {
@@ -21,12 +21,12 @@ public class McpToolRegistry {
     /**
      * 构造注册表并注册默认工具集。
      *
-     * @param treClient 工具底层调用的任务客户端
+     * @param gdlClient 工具底层调用的任务客户端
      */
-    public McpToolRegistry(GdlEngineClient treClient) {
-        register(new StartTaskTool(treClient));
-        register(new GetTaskResultTool(treClient));
-        register(new GetGmlToDagTool(treClient));
+    public McpToolRegistry(GdlEngineClient gdlClient) {
+        register(new StartTaskTool(gdlClient));
+        register(new GetTaskResultTool(gdlClient));
+        register(new GetGmlToDagTool(gdlClient));
     }
 
     /**

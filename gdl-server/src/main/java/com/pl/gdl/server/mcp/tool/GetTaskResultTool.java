@@ -7,10 +7,10 @@ import com.pl.gdl.server.mcp.McpTool;
 import java.util.Map;
 
 public class GetTaskResultTool implements McpTool {
-    private final GdlEngineClient treClient;
+    private final GdlEngineClient gdlClient;
 
-    public GetTaskResultTool(GdlEngineClient treClient) {
-        this.treClient = treClient;
+    public GetTaskResultTool(GdlEngineClient gdlClient) {
+        this.gdlClient = gdlClient;
     }
 
     @Override
@@ -40,7 +40,7 @@ public class GetTaskResultTool implements McpTool {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("Parameter 'taskId' is mandatory");
         }
-        TaskResult result = treClient.getTaskResult(taskId);
+        TaskResult result = gdlClient.getTaskResult(taskId);
         if (result == null) {
             return Map.of("status", "NOT_FOUND", "message", "Task " + taskId + " not found");
         }

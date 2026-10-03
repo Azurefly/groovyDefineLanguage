@@ -24,12 +24,12 @@ public class GdlServerApplication {
                 System.out.println("Usage: java -cp ... com.pl.gdl.server.GdlServerApplication [options]");
                 System.out.println("Options:");
                 System.out.println("  --port <port>    Listen port (default 8080)");
-                System.out.println("  --token <token>  Security token for tre-token verification");
+                System.out.println("  --token <token>  Security token for gdl-token verification");
                 System.out.println("  --help           Print help");
                 System.out.println();
                 System.out.println("Security:");
                 System.out.println("  Token authentication is ENABLED by default. All API endpoints except");
-                System.out.println("  /tre/api/health require the 'tre-token' request header to match --token.");
+                System.out.println("  /gdl/api/health require the 'gdl-token' request header to match --token.");
                 System.out.println("  If --token is omitted, the server starts in OPEN mode (no authentication).");
                 System.out.println("  OPEN mode is intended for trusted local/test environments ONLY.");
                 return;
@@ -66,9 +66,9 @@ public class GdlServerApplication {
             server.start();
             log.info("=============================================================");
             log.info(" GDL Engine Remote Service running at http://localhost:{}", server.getPort());
-            log.info(" HTTP REST API: http://localhost:{}/tre/api/...", server.getPort());
-            log.info(" MCP Tool API:  http://localhost:{}/tre/mcp/service", server.getPort());
-            log.info(" Health Check:  http://localhost:{}/tre/api/health", server.getPort());
+            log.info(" HTTP REST API: http://localhost:{}/gdl/api/...", server.getPort());
+            log.info(" MCP Tool API:  http://localhost:{}/gdl/mcp/service", server.getPort());
+            log.info(" Health Check:  http://localhost:{}/gdl/api/health", server.getPort());
             log.info(" Token Auth:    {}", config.isRequireToken() ? "ENABLED" : "DISABLED");
             log.info("=============================================================");
 
