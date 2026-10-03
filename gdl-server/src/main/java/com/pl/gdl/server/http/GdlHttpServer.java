@@ -29,7 +29,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * GDL / TRE 引擎的 HTTP 服务端。
+ * GDL 引擎的 HTTP 服务端。
  *
  * <p>同时承担两类职责：</p>
  * <ul>
@@ -196,7 +196,7 @@ public class GdlHttpServer {
      *
      * <p>处理流程：健康检查接口直接放行；其余接口先做 token 鉴权
      * （{@code tre-token} 请求头与配置一致，否则 401），再按路径分发到
-     * 本体注册/查询、任务提交/查询、TSML 转 DAG、MCP 服务等分支。</p>
+     * 本体注册/查询、任务提交/查询、GML 转 DAG、MCP 服务等分支。</p>
      *
      * @param req 进程内请求
      * @return 进程内响应
@@ -216,7 +216,7 @@ public class GdlHttpServer {
         if ("/tre/api/health".equals(path)) {
             return jsonResponse(200, Map.of(
                     "status", "UP",
-                    "service", "GDL / TRE Engine",
+                    "service", "GDL Engine",
                     "version", "1.0.0-GA",
                     "timestamp", System.currentTimeMillis()
             ));
@@ -489,7 +489,7 @@ public class GdlHttpServer {
      * 统一的 HTTP 请求处理器（DU-01 去重）。
      * 原 8 个内部类（HealthHandler、GetOntologiesHandler、RegisterOntologyHandler、
      * UnregisterOntologyHandler、StartTaskHandler、GetTaskResultHandler、
-     * GetTsmlToDagHandler、McpServiceHandler）的 handle 方法完全相同，
+     * GetTsmlToDagHandler（历史命名，保持兼容）、McpServiceHandler）的 handle 方法完全相同，
      * 均委托 handleDirect 按请求路径路由，因此合并为一个无状态共享实例。
      * 路径注册、线程语义、鉴权、413 行为均保持不变。
      */

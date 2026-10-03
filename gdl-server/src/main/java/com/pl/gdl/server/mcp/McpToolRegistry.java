@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>构造时自动注册默认工具集：{@code start_task}（提交 GDL 任务）、
  * {@code get_task_result}（查询任务结果）、{@code get_tsml_to_dag}
- * （TSML 转 DAG）。同时支持运行时通过 {@link #register(McpTool)} 注册自定义工具。</p>
+ * （GML 转 DAG）。同时支持运行时通过 {@link #register(McpTool)} 注册自定义工具。</p>
  */
 public class McpToolRegistry {
     private final Map<String, McpTool> tools = new ConcurrentHashMap<>();

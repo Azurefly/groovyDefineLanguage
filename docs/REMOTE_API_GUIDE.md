@@ -127,7 +127,7 @@ System.out.println("DAG 拓扑 JSON: " + dagJson);
 ```json
 {
   "status": "UP",
-  "service": "GDL / TRE Engine",
+  "service": "GDL Engine",
   "version": "1.0.0-GA",
   "timestamp": 1789384500000
 }
@@ -336,4 +336,4 @@ GDL 引擎原生集成了 **Model Context Protocol (MCP)** 流式 HTTP 接口：
 ### 2. 支持的 MCP 工具列表
 1. `start_task`：接收大模型生成的 GDL 脚本，调度执行。
 2. `get_task_result`：根据 taskId 获取执行详情与数据表格。
-3. `get_tsml_to_dag`：将脚本转为可视化 DAG 图点线边拓扑，供前端画布动态渲染展示。
+3. `get_tsml_to_dag`：将 GML 脚本转为可视化 DAG 图点线边拓扑，供前端画布动态渲染展示（工具名为历史命名，保持兼容）。

@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * TRE（任务运行引擎）客户端抽象：本体注册/查询、GDL 任务提交/查询、TSML 转 DAG。
+ * GDL 引擎远程服务客户端抽象：本体注册/查询、GDL 任务提交/查询、GDL 脚本转 DAG。
  *
  * <p>两种实现：</p>
  * <ul>
@@ -71,7 +71,7 @@ public interface TreClient {
     List<OntoInfoRsp> getOntologies(String fullOntologyNames, String areaCode);
 
     /**
-     * 异步提交 GDL / TSML 脚本任务。
+     * 异步提交 GDL 脚本任务。
      *
      * <p>调用后立即返回 taskId，不等待执行完成；随后用
      * {@link #getTaskResult(String)} 轮询结果。</p>
@@ -91,7 +91,8 @@ public interface TreClient {
     TaskResult getTaskResult(String taskId);
 
     /**
-     * 将 GDL / TSML 脚本解析为 DAG 并返回其 JSON 表示。
+     * 将 GDL 脚本解析为 DAG 并返回其 JSON 表示。
+     * <p>注：方法名中的 {@code Tsml} 为历史命名，保持 API 兼容；概念上为 GML（GDL 模型语言）转 DAG。</p>
      *
      * @param gdlScript GDL 脚本
      * @return DAG 的 JSON 字符串

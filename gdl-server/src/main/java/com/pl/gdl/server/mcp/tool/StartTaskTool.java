@@ -7,7 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * MCP 工具 {@code start_task}：把一段 GDL / TSML 脚本提交到 TRE 引擎执行。
+ * MCP 工具 {@code start_task}：把一段 GML 脚本提交到 GDL 引擎执行。
  *
  * <p>任务提交为异步：调用后立即返回 taskId，可随后用 {@code get_task_result}
  * 工具轮询执行结果。</p>
@@ -26,7 +26,7 @@ public class StartTaskTool implements McpTool {
 
     @Override
     public String getDescription() {
-        return "Dispatches a GDL / TSML script for execution on the TRE engine";
+        return "Dispatches a GML script for execution on the GDL engine";
     }
 
     @Override

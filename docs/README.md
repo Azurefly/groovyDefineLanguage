@@ -13,11 +13,6 @@
 - [09_漂移算子](gdl/09_漂移算子.md)
 - [10_高级算子](gdl/10_高级算子.md)
 
-## TSML 手册
-
-- [TSML指导手册V2.0](tsml/TSML指导手册V2.0.md)
-- [TSML本体语法定义与开发指导手册](tsml/TSML本体语法定义与开发指导手册.md)
-
 ## 服务化
 
 - [远程 API 指南](REMOTE_API_GUIDE.md)

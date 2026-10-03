@@ -20,7 +20,7 @@ public class GdlServerApplication {
                 token = args[++i];
                 tokenProvided = true;
             } else if ("--help".equals(args[i])) {
-                System.out.println("GDL / TRE Engine Server");
+                System.out.println("GDL Engine Server");
                 System.out.println("Usage: java -cp ... com.pl.gdl.server.GdlServerApplication [options]");
                 System.out.println("Options:");
                 System.out.println("  --port <port>    Listen port (default 8080)");

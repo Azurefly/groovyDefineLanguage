@@ -20,7 +20,7 @@ import java.util.*;
 
 /**
  * {@link TreClient} 的远程 HTTP 实现，通过 {@link HttpTransport} 调用远端
- * GDL / TRE 服务的 {@code /tre/api/*} 接口。
+ * GDL 引擎远程服务的 {@code /tre/api/*} 接口（路径保留历史命名以兼容）。
  *
  * <p>远端接口返回的 JSON 字段存在历史兼容差异（如 {@code msg}/{@code message}、
  * {@code result}/{@code data}），本类在解析时做了兼容处理；所有从 JSON 取出的

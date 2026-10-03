@@ -19,7 +19,7 @@ public class GetTsmlToDagTool implements McpTool {
 
     @Override
     public String getDescription() {
-        return "Converts a GDL / TSML script into a visual DAG canvas JSON structure";
+        return "Converts a GDL script into a visual DAG canvas JSON structure";
     }
 
     @Override

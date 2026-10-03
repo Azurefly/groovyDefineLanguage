@@ -8,7 +8,7 @@ GDL（GroovyDefine Language）是一门基于 Groovy 语法的模型语言，用
 
 | 概念 | 说明 |
 |---|---|
-| **TRE** | GDL 运行引擎，负责脚本解析与执行 |
+| **GDL 引擎** | GDL 运行引擎，负责脚本解析与执行 |
 | **CmdDataframe** | 数据集对象，所有算子的输入输出类型 |
 | **CmdDatasource** | 数据源对象 |
 | **本体（Ontology）** | 业务领域模型，封装了业务属性和操作方法 |
