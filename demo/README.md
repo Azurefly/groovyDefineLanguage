@@ -13,6 +13,21 @@
 
 ## 运行 Demo
 
+**推荐：一键运行脚本**（自动打包 shade jar，无需手动处理 classpath）：
+
+```bash
+cd demo
+./run-demo.sh 1   # Demo 1：H2 内存 ETL 全流程（过滤→投影→聚合→排序→TopN）
+./run-demo.sh 2   # Demo 2：跨源联邦查询（用户表 left join 订单表）
+./run-demo.sh 3   # Demo 3：LLM 大模型调用（需要先启动 Ollama）
+                  #   ollama serve &
+                  #   ollama pull qwen2:0.5b
+                  # 可通过环境变量覆盖：LLM_URL、LLM_MODEL
+```
+
+<details>
+<summary>手动运行（备选）</summary>
+
 ```bash
 cd demo
 mvn -o compile
@@ -32,6 +47,7 @@ mvn -o exec:java -Dexec.mainClass=com.pl.gdl.demo.LlmDemo
 
 > 注：`exec:java` 需要 `exec-maven-plugin`，首次运行时会自动下载。
 > 如需离线运行，可改用 `mvn -o package` 打包后用 `java -cp` 直接运行。
+</details>
 
 ## Demo 说明
 
