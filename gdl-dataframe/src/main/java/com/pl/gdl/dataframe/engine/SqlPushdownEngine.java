@@ -128,11 +128,11 @@ public class SqlPushdownEngine implements ExecutionEngine {
             return "SELECT * FROM (" + base + ") sub_limit " + dialect.formatLimit(limitOp.getOffset(), limitOp.getLimit());
         }
 
-        // SAMPLE：随机采样。按行数用 ORDER BY RAND() LIMIT n，按比例用 WHERE RAND() < fraction
-        // seed 不为空时透传给 RAND(seed)，保证可复现
+        // SAMPLE：随机采样。按行数用 ORDER BY rand LIMIT n，按比例用 WHERE rand < fraction
+        // seed 不为空时透传，保证可复现；随机函数名按方言适配（如 PG 用 RANDOM()）
         if (operator instanceof SampleOperator sampleOp) {
             String base = toSql(sampleOp.getUpstream().get(0));
-            String randExpr = sampleOp.getSeed() != null ? "RAND(" + sampleOp.getSeed() + ")" : "RAND()";
+            String randExpr = dialect.formatRandom(sampleOp.getSeed());
             if (sampleOp.isBySize()) {
                 return "SELECT * FROM (" + base + ") sub_sample ORDER BY " + randExpr + " LIMIT " + sampleOp.getSampleSize();
             } else {

@@ -387,6 +387,10 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     @Override
     public CmdDataframe llmCall(CmdDatasource llmDs, String model, String role, String target, String resultCol, Map<String, Object> params) {
+        if (!(llmDs instanceof com.pl.gdl.dataframe.datasource.LlmDatasource)) {
+            throw new IllegalArgumentException("llmCall 需要 LlmDatasource，传入的是 "
+                    + (llmDs == null ? "null" : llmDs.getClass().getSimpleName()));
+        }
         return new CmdDataframeImpl(new LlmCallOperator(operator, llmDs, model, role, target, resultCol, params), executionEngine);
     }
 

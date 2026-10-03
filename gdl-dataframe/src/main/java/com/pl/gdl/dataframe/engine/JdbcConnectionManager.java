@@ -102,7 +102,11 @@ public final class JdbcConnectionManager implements AutoCloseable {
         try {
             Class.forName(driver);
         } catch (ClassNotFoundException e) {
-            throw new GdlExecutionException("JDBC driver not found: " + driver, e);
+            String hint = "";
+            if (driver.startsWith("org.apache.hive.jdbc")) {
+                hint = "（Hive JDBC 驱动未在 classpath 中，请添加依赖 org.apache.hive:hive-jdbc:3.1.3）";
+            }
+            throw new GdlExecutionException("JDBC driver not found: " + driver + hint, e);
         }
     }
 

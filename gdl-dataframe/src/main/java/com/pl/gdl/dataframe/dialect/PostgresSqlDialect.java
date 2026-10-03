@@ -46,4 +46,10 @@ public class PostgresSqlDialect implements SqlDialect {
     public String formatOverwritePartition(String tableName, String partitionSpec, String selectSql) {
         return "DELETE FROM " + tableName + " WHERE " + partitionSpec + "; INSERT INTO " + tableName + " " + selectSql;
     }
+
+    @Override
+    public String formatRandom(Long seed) {
+        // Postgres 使用 RANDOM()，不支持 seed 参数
+        return "RANDOM()";
+    }
 }

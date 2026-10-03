@@ -17,6 +17,14 @@ public interface SqlDialect {
     String formatLimit(int offset, int limit);
 
     /**
+     * 返回该方言的随机函数名（不带括号），如 H2/MySQL/Hive 的 RAND，Postgres 的 RANDOM。
+     * seed 为 null 时不带参数，否则带 seed 参数。
+     */
+    default String formatRandom(Long seed) {
+        return seed != null ? "RAND(" + seed + ")" : "RAND()";
+    }
+
+    /**
      * 生成"分组内按排序取首行"的 SQL（通常基于 ROW_NUMBER 窗口函数）。
      */
     String formatGroupSortFirst(String groupCols, String sortCols, String sourceTable);

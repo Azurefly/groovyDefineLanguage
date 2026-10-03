@@ -124,8 +124,12 @@ public class DatasourceRegistry {
         registry.register(provider("H2", jdbcCaps, new H2SqlDialect(), cfg ->
                 new H2Datasource(str(cfg, "url", "jdbc:h2:mem:gdl;DB_CLOSE_DELAY=-1"),
                         str(cfg, "username", "sa"), registry.password(cfg, ""))));
+        // HIVE 双路径：有 url 走 JDBC（支持健康检查/元数据），无 url 为纯配置型。
+        // 能力声明包含 JDBC 路径的全部能力；配置型路径实际不支持执行，调用时会有明确提示。
         registry.register(provider("HIVE", EnumSet.of(DatasourceCapability.READ, DatasourceCapability.WRITE,
-                DatasourceCapability.SQL, DatasourceCapability.PARTITIONED_WRITE), new HiveSqlDialect(), cfg -> {
+                DatasourceCapability.SQL, DatasourceCapability.PARTITIONED_WRITE,
+                DatasourceCapability.JDBC, DatasourceCapability.METADATA, DatasourceCapability.HEALTH_CHECK),
+                new HiveSqlDialect(), cfg -> {
             String url = str(cfg, "url", null);
             if (url != null && !url.isBlank()) {
                 return new HiveJdbcDatasource(url, str(cfg, "username", ""), registry.password(cfg, ""));

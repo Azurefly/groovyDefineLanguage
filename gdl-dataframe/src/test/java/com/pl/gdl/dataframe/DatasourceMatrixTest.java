@@ -184,7 +184,7 @@ public class DatasourceMatrixTest {
     @Test
     public void federatedH2AndSqlite() {
         H2Datasource h2 = (H2Datasource) registry.create("H2",
-                Map.of("jdbcUrl", "jdbc:h2:mem:fed_h2;DB_CLOSE_DELAY=-1"));
+                Map.of("url", "jdbc:h2:mem:fed_h2;DB_CLOSE_DELAY=-1"));
         SqliteDatasource sqlite = (SqliteDatasource) registry.create("SQLITE", Map.of("path", ":memory:"));
 
         ExecutionEngine h2Engine = registry.createExecutionEngine(h2);

@@ -73,6 +73,8 @@ Execution
 > `RealHiveE2ETest`（需 `HIVE_TEST_URL` 环境变量）在有 HiveServer2 时执行真实 JDBC 全流程。
 > GDL 接入方式：`registry.create("HIVE", Map.of("url", "jdbc:hive2://host:10000/default"))` 返回 `HiveJdbcDatasource`，
 > 自动获得 `JdbcExecutionEngine`（JDBC 查询/健康检查/元数据）；不带 `url` 时保持原有配置型 `HiveDatasource` 兼容。
+> 注意：Hive JDBC 驱动（`org.apache.hive:hive-jdbc:3.1.3`）未默认打包，使用 HIVE+url 路径前请自行添加该依赖；
+> 驱动缺失时会抛出明确提示。HiveQL 仅支持 `LIMIT n`，`limit(offset>0)` 会抛 `UnsupportedOperationException`。
 
 > 实测覆盖：
 > - `DatasourceMatrixTest`：H2/SQLite 真实建表、插入、查询、连接池、健康检查、元数据全链路验证；PG/MySQL Provider 构造、JDBC URL、方言 SQL 生成、无服务时健康检查优雅降级。

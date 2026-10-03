@@ -123,8 +123,12 @@ public class SqlPushdownEngineTest {
 
     @Test
     public void testLimitHive() {
-        assertThat(HIVE.toSql(new LimitOperator(from("t_user"), 5, 10)))
-                .isEqualTo("SELECT * FROM (SELECT * FROM t_user) sub_limit LIMIT 5, 10");
+        // HiveQL 仅支持 LIMIT n，不支持带 offset 的分页，应抛明确异常而非生成错误 SQL
+        assertThat(HIVE.toSql(new LimitOperator(from("t_user"), 0, 10)))
+                .isEqualTo("SELECT * FROM (SELECT * FROM t_user) sub_limit LIMIT 10");
+        assertThatThrownBy(() -> HIVE.toSql(new LimitOperator(from("t_user"), 5, 10)))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("不支持带 offset 的 LIMIT");
     }
 
     @Test

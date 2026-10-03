@@ -15,7 +15,9 @@ public class HiveSqlDialect implements SqlDialect {
     @Override
     public String formatLimit(int offset, int limit) {
         if (offset > 0) {
-            return "LIMIT " + offset + ", " + limit;
+            // HiveQL 不支持 LIMIT offset, limit 语法（仅支持 LIMIT n），明确抛异常而非生成错误 SQL
+            throw new UnsupportedOperationException(
+                    "Hive 方言不支持带 offset 的 LIMIT（offset=" + offset + "），请使用 limit(n) 或先过滤再分页");
         }
         return "LIMIT " + limit;
     }

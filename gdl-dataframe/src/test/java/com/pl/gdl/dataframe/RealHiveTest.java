@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Hive 测试：
@@ -41,9 +42,10 @@ public class RealHiveTest {
     public void hiveDialectSqlGeneration() {
         // 反引号标识符（含反引号 doubling）
         assertThat(dialect.quoteIdentifier("my`table")).isEqualTo("`my``table`");
-        // LIMIT OFFSET（Hive 风格：LIMIT offset, limit）
-        assertThat(dialect.formatLimit(10, 20)).isEqualTo("LIMIT 10, 20");
+        // LIMIT：HiveQL 仅支持 LIMIT n，带 offset 应抛明确异常
         assertThat(dialect.formatLimit(0, 20)).isEqualTo("LIMIT 20");
+        assertThatThrownBy(() -> dialect.formatLimit(10, 20))
+                .isInstanceOf(UnsupportedOperationException.class);
         // INSERT OVERWRITE（Hive 特有）
         assertThat(dialect.formatOverwriteTable("dw.t", "SELECT 1"))
                 .isEqualTo("INSERT OVERWRITE TABLE dw.t SELECT 1");
