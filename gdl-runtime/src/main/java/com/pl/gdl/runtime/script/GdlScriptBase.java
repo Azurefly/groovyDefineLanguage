@@ -110,6 +110,11 @@ public abstract class GdlScriptBase extends Script {
     public static class DriftToBuilder {
         private final String targetAreaCode;
         public DriftToBuilder(String targetAreaCode) { this.targetAreaCode = targetAreaCode; }
-        public DriftToBuilder attach(CmdDataframe df, String originalTable, String newTable, String type) { return this; }
+        public DriftToBuilder attach(CmdDataframe df, String originalTable, String newTable, String type) {
+            // 跨地域数据搬运尚未实现：此前为静默 no-op（参数丢弃、无副作用），与项目 fail-fast 原则相悖。
+            // 现改为明确抛异常，避免调用方误以为数据已搬运。
+            throw new UnsupportedOperationException(
+                    "driftTo.attach 尚未实现：跨地域数据搬运需要 REMOTE_DRIFT 传输层，当前无执行实现");
+        }
     }
 }

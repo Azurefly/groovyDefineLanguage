@@ -444,9 +444,24 @@ public class GdlHttpServer {
 
     // --- Helper Methods ---
 
+    /** 请求体大小上限：10MB（与客户端 TreRemoteHttpClient 的响应上限对称），防止 GB 级 body 耗尽堆内存。 */
+    private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
+
     private static String readBody(HttpExchange exchange) throws IOException {
         try (InputStream in = exchange.getRequestBody()) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            // 分块读取并强制上限，避免 readAllBytes 无限制分配
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int total = 0;
+            int n;
+            while ((n = in.read(chunk)) != -1) {
+                total += n;
+                if (total > MAX_BODY_BYTES) {
+                    throw new IOException("请求体超过上限 " + MAX_BODY_BYTES + " 字节，已拒绝");
+                }
+                buf.write(chunk, 0, n);
+            }
+            return buf.toString(StandardCharsets.UTF_8);
         }
     }
 
@@ -470,72 +485,111 @@ public class GdlHttpServer {
     private class HealthHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
+        }
+    }
+
+    /**
+     * 统一的请求处理入口：请求体超限（IOException）时返回 413，避免未处理的 IOException 导致连接挂起。
+     * 各 Handler 应调用此方法而非直接调用 toHttpRequest。
+     */
+    @FunctionalInterface
+    private interface RequestHandler {
+        void handle(HttpRequest req) throws IOException;
+    }
+
+    private void handleWithBodyLimit(HttpExchange exchange, RequestHandler handler) throws IOException {
+        final HttpRequest req;
+        try {
+            req = toHttpRequest(exchange);
+        } catch (IOException e) {
+            sendError(exchange, 413, e.getMessage() != null ? e.getMessage() : "请求体读取失败");
+            return;
+        }
+        handler.handle(req);
+    }
+
+    private void sendError(HttpExchange exchange, int statusCode, String message) throws IOException {
+        String body = "{\"code\":" + statusCode + ",\"msg\":\""
+                + message.replace("\"", "'") + "\",\"success\":false}";
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(statusCode, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
         }
     }
 
     private class GetOntologiesHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
         }
     }
 
     private class RegisterOntologyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
         }
     }
 
     private class UnregisterOntologyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
         }
     }
 
     private class StartTaskHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
         }
     }
 
     private class GetTaskResultHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
         }
     }
 
     private class GetTsmlToDagHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
         }
     }
 
     private class McpServiceHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            HttpRequest req = toHttpRequest(exchange);
-            HttpResponse res = handleDirect(req);
-            fromHttpResponse(exchange, res);
+            handleWithBodyLimit(exchange, req -> {
+                HttpResponse res = handleDirect(req);
+                fromHttpResponse(exchange, res);
+            });
         }
     }
 

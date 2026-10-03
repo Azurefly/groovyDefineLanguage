@@ -43,6 +43,18 @@ public class GdlServerApplication {
             log.warn("!! SECURITY WARNING: --token not provided.                       !!");
             log.warn("!! Server is running in OPEN mode WITHOUT authentication.        !!");
             log.warn("!! Anyone who can reach this port can call all APIs.              !!");
+        } else if (token == null || token.isBlank()) {
+            // --token ""（空字符串）此前会静默进入开放模式且无任何警告，是真实 footgun。
+            // 现改为拒绝启动，要求用户明确提供非空 token 或完全省略 --token（后者会有警告）。
+            log.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            log.error("!! SECURITY ERROR: --token was provided but is blank.            !!");
+            log.error("!! Refusing to start: a blank token would silently disable auth. !!");
+            log.error("!! Provide a non-empty token, or omit --token for open mode.     !!");
+            log.error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            System.exit(1);
+            return;
+        }
+        if (!tokenProvided) {
             log.warn("!! Use --token <token> to enable token authentication.           !!");
             log.warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
             System.err.println("WARNING: --token not provided, server running in OPEN mode without authentication!");

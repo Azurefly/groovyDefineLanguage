@@ -184,27 +184,31 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     }
 
     // Storage mutations
+    // 注意：以下写操作方法当前尚未实现。此前为静默 no-op（仅做空表检查后返回），调用方会误以为写入成功。
+    // 现改为明确抛 UnsupportedOperationException，避免静默的数据丢失假象。
     public Ontology save(Map<String, Object> record) {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table, cannot save");
-        return this;
+        throw new UnsupportedOperationException("Ontology.save 尚未实现：本体写回需要存储引擎对接");
     }
 
     public Ontology delete(String expr) {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table, cannot delete");
-        return this;
+        throw new UnsupportedOperationException("Ontology.delete 尚未实现");
     }
 
     public Ontology update(String expr, Map<String, Object> record) {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table, cannot update");
-        return this;
+        throw new UnsupportedOperationException("Ontology.update 尚未实现");
     }
 
     public void addColumns(String fields) {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table");
+        throw new UnsupportedOperationException("Ontology.addColumns 尚未实现");
     }
 
     public void dropTable() {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table");
+        throw new UnsupportedOperationException("Ontology.dropTable 尚未实现");
     }
 
     // Helper method
