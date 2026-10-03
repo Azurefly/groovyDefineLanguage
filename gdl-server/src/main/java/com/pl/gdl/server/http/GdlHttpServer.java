@@ -96,14 +96,16 @@ public class GdlHttpServer {
             this.executor = Executors.newFixedThreadPool(config.getWorkerThreads());
             this.server.setExecutor(this.executor);
 
-            server.createContext("/tre/api/health", new HealthHandler());
-            server.createContext("/tre/api/getOntologies", new GetOntologiesHandler());
-            server.createContext("/tre/api/registerOntology", new RegisterOntologyHandler());
-            server.createContext("/tre/api/unregisterOntology", new UnregisterOntologyHandler());
-            server.createContext("/tre/api/startTask", new StartTaskHandler());
-            server.createContext("/tre/api/getTaskResult", new GetTaskResultHandler());
-            server.createContext("/tre/api/getTsmlToDag", new GetTsmlToDagHandler());
-            server.createContext("/tre/mcp/service", new McpServiceHandler());
+            // 所有路径共用同一个无状态 DirectHandler（DU-01）；handleDirect 按路径做路由与鉴权
+            HttpHandler directHandler = new DirectHandler();
+            server.createContext("/tre/api/health", directHandler);
+            server.createContext("/tre/api/getOntologies", directHandler);
+            server.createContext("/tre/api/registerOntology", directHandler);
+            server.createContext("/tre/api/unregisterOntology", directHandler);
+            server.createContext("/tre/api/startTask", directHandler);
+            server.createContext("/tre/api/getTaskResult", directHandler);
+            server.createContext("/tre/api/getTsmlToDag", directHandler);
+            server.createContext("/tre/mcp/service", directHandler);
 
             this.server.start();
             log.info("GDL HTTP Server listening on http://{}:{}", config.getHost(), getPort());
@@ -368,15 +370,7 @@ public class GdlHttpServer {
                 return res;
             } else if ("/tre/mcp/service".equals(path)) {
                 if ("GET".equalsIgnoreCase(req.getMethod())) {
-                    List<Map<String, Object>> toolsList = new ArrayList<>();
-                    for (McpTool tool : mcpRegistry.getAllTools()) {
-                        toolsList.add(Map.of(
-                                "name", tool.getName(),
-                                "description", tool.getDescription(),
-                                "inputSchema", tool.getInputSchema()
-                        ));
-                    }
-                    return jsonResponse(200, Map.of("tools", toolsList));
+                    return jsonResponse(200, Map.of("tools", getToolDescriptors()));
                 }
 
                 if ("POST".equalsIgnoreCase(req.getMethod())) {
@@ -385,15 +379,7 @@ public class GdlHttpServer {
                         if (parsed instanceof Map<?, ?> mcpReq) {
                             String method = (String) mcpReq.get("method");
                             if ("tools/list".equals(method)) {
-                                List<Map<String, Object>> toolsList = new ArrayList<>();
-                                for (McpTool tool : mcpRegistry.getAllTools()) {
-                                    toolsList.add(Map.of(
-                                            "name", tool.getName(),
-                                            "description", tool.getDescription(),
-                                            "inputSchema", tool.getInputSchema()
-                                    ));
-                                }
-                                return jsonResponse(200, Map.of("result", Map.of("tools", toolsList)));
+                                return jsonResponse(200, Map.of("result", Map.of("tools", getToolDescriptors())));
                             }
 
                             String toolName = null;
@@ -442,6 +428,23 @@ public class GdlHttpServer {
         return res;
     }
 
+    /**
+     * 构建 MCP 工具描述符列表（DU-02 去重）。
+     * GET /tre/mcp/service 与 POST tools/list 共用此方法；
+     * 两者的协议外壳（{"tools":[...]} vs {"result":{"tools":[...]}}）保持各自原样，不做统一。
+     */
+    private List<Map<String, Object>> getToolDescriptors() {
+        List<Map<String, Object>> toolsList = new ArrayList<>();
+        for (McpTool tool : mcpRegistry.getAllTools()) {
+            toolsList.add(Map.of(
+                    "name", tool.getName(),
+                    "description", tool.getDescription(),
+                    "inputSchema", tool.getInputSchema()
+            ));
+        }
+        return toolsList;
+    }
+
     // --- Helper Methods ---
 
     /** 请求体大小上限：10MB（与客户端 TreRemoteHttpClient 的响应上限对称），防止 GB 级 body 耗尽堆内存。 */
@@ -482,7 +485,15 @@ public class GdlHttpServer {
 
     // --- Standard Java HttpExchange Handlers (for physical socket listen) ---
 
-    private class HealthHandler implements HttpHandler {
+    /**
+     * 统一的 HTTP 请求处理器（DU-01 去重）。
+     * 原 8 个内部类（HealthHandler、GetOntologiesHandler、RegisterOntologyHandler、
+     * UnregisterOntologyHandler、StartTaskHandler、GetTaskResultHandler、
+     * GetTsmlToDagHandler、McpServiceHandler）的 handle 方法完全相同，
+     * 均委托 handleDirect 按请求路径路由，因此合并为一个无状态共享实例。
+     * 路径注册、线程语义、鉴权、413 行为均保持不变。
+     */
+    private class DirectHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             handleWithBodyLimit(exchange, req -> {
@@ -520,76 +531,6 @@ public class GdlHttpServer {
         exchange.sendResponseHeaders(statusCode, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
-        }
-    }
-
-    private class GetOntologiesHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            handleWithBodyLimit(exchange, req -> {
-                HttpResponse res = handleDirect(req);
-                fromHttpResponse(exchange, res);
-            });
-        }
-    }
-
-    private class RegisterOntologyHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            handleWithBodyLimit(exchange, req -> {
-                HttpResponse res = handleDirect(req);
-                fromHttpResponse(exchange, res);
-            });
-        }
-    }
-
-    private class UnregisterOntologyHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            handleWithBodyLimit(exchange, req -> {
-                HttpResponse res = handleDirect(req);
-                fromHttpResponse(exchange, res);
-            });
-        }
-    }
-
-    private class StartTaskHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            handleWithBodyLimit(exchange, req -> {
-                HttpResponse res = handleDirect(req);
-                fromHttpResponse(exchange, res);
-            });
-        }
-    }
-
-    private class GetTaskResultHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            handleWithBodyLimit(exchange, req -> {
-                HttpResponse res = handleDirect(req);
-                fromHttpResponse(exchange, res);
-            });
-        }
-    }
-
-    private class GetTsmlToDagHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            handleWithBodyLimit(exchange, req -> {
-                HttpResponse res = handleDirect(req);
-                fromHttpResponse(exchange, res);
-            });
-        }
-    }
-
-    private class McpServiceHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            handleWithBodyLimit(exchange, req -> {
-                HttpResponse res = handleDirect(req);
-                fromHttpResponse(exchange, res);
-            });
         }
     }
 
