@@ -4,8 +4,8 @@ import com.pl.gdl.common.enums.TaskStatus;
 import com.pl.gdl.common.model.OntoInfoRsp;
 import com.pl.gdl.common.model.RegisterRsp;
 import com.pl.gdl.common.model.TaskResult;
-import com.pl.gdl.server.client.TreClient;
-import com.pl.gdl.server.client.TreClientImpl;
+import com.pl.gdl.server.client.GdlEngineClient;
+import com.pl.gdl.server.client.GdlEngineClientImpl;
 import com.pl.gdl.server.mcp.McpToolRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -15,11 +15,11 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
-public class TreClientTest {
+public class GdlEngineClientTest {
 
     @Test
-    public void testTreClientOntologyAndTaskExecution() {
-        TreClient client = new TreClientImpl();
+    public void testGdlEngineClientOntologyAndTaskExecution() {
+        GdlEngineClient client = new GdlEngineClientImpl();
 
         // 1. Register Ontology
         String ontoCode = """
@@ -84,7 +84,7 @@ public class TreClientTest {
 
     @Test
     public void testStartTaskIsAsync() throws Exception {
-        TreClientImpl client = new TreClientImpl();
+        GdlEngineClientImpl client = new GdlEngineClientImpl();
         try {
             String script = """
                 def hiveDs = hive()
@@ -130,7 +130,7 @@ public class TreClientTest {
 
     @Test
     public void testMcpToolsExecution() throws Exception {
-        TreClient client = new TreClientImpl();
+        GdlEngineClient client = new GdlEngineClientImpl();
         McpToolRegistry mcpRegistry = new McpToolRegistry(client);
 
         assertThat(mcpRegistry.getAllTools()).hasSize(3);

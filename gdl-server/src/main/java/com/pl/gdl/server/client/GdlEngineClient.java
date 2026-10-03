@@ -12,15 +12,15 @@ import java.util.Map;
  *
  * <p>两种实现：</p>
  * <ul>
- *   <li>{@link TreClientImpl}——本地进程内实现，直接调用各引擎模块；</li>
- *   <li>{@link TreRemoteHttpClient}——远程 HTTP 实现，调用远端服务的
+ *   <li>{@link GdlEngineClientImpl}——本地进程内实现，直接调用各引擎模块；</li>
+ *   <li>{@link GdlHttpEngineClient}——远程 HTTP 实现，调用远端服务的
  *       {@code /tre/api/*} 接口。</li>
  * </ul>
  *
  * <p>任务提交均为异步语义：{@link #startTask(String, Map)} 立即返回 taskId，
  * 再用 {@link #getTaskResult(String)} 轮询执行结果。</p>
  */
-public interface TreClient {
+public interface GdlEngineClient {
     /**
      * 注册单个本体。
      *

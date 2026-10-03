@@ -1,14 +1,14 @@
 package com.pl.gdl.server.mcp.tool;
 
-import com.pl.gdl.server.client.TreClient;
+import com.pl.gdl.server.client.GdlEngineClient;
 import com.pl.gdl.server.mcp.McpTool;
 
 import java.util.Map;
 
-public class GetTsmlToDagTool implements McpTool {
-    private final TreClient treClient;
+public class GetGmlToDagTool implements McpTool {
+    private final GdlEngineClient treClient;
 
-    public GetTsmlToDagTool(TreClient treClient) {
+    public GetGmlToDagTool(GdlEngineClient treClient) {
         this.treClient = treClient;
     }
 

@@ -21,7 +21,7 @@ gdl-parent (pom.xml)
 ├── gdl-runtime       // Groovy DSL、能力规划、联邦规划与执行、动态变量体系与 DAG 生成
 ├── gdl-ontology      // 业务本体系统（@Table/@Column 注解、Ontology基类、动态ClassLoader热加载、DDL生成与CRUD）
 ├── gdl-drift         // 跨区域 Exchange、漂移计算（areaCode 亲和性分析、DAG边界切割、driftTo/driftFrom 自动注入与中间表管理）
-└── gdl-server        // 服务接入层（TreClient Java SDK、HTTP REST 服务、MCP 流式协议工具接口）
+└── gdl-server        // 服务接入层（GdlEngineClient Java SDK、HTTP REST 服务、MCP 流式协议工具接口）
 ```
 
 多数据源执行链：
@@ -103,11 +103,6 @@ Execution
 通过 `variable("生成器名称", 参数Map)` 动态求值：
 - `CurrentTimeVar`: 支持 `DATE8`, `DATE10`, `DATE14`, `DATE_8`, `DATE_14`, `SEC` 等时间变量
 - `CommonIncrementVar`: 增量高水位线抽取条件
-- `BdosPartitionIncrementVar`: 分区增量范围抽取（已废弃，调用抛未实现异常）
-- `BdosPartitionModifyIncrementVar`: 分区最后修改时间增量（已废弃，调用抛未实现异常）
-- `BdosReadLastNPartitionVar`: 最新 N 个分区增量（已废弃，调用抛未实现异常）
-- `BdosReadLastOnePartitionVar`: 最新单一分区（已废弃，调用抛未实现异常）
-- `BdosReadLastPartitionVar`: 读取最新分区区间（已废弃，调用抛未实现异常）
 
 ### 3. 业务本体模型（Ontology）
 - 业务类继承 `Ontology`，使用 `@Table` 与 `@Column` 注解定义模型元数据与物理表映射
@@ -124,7 +119,7 @@ Execution
 ### 5. 第三方远程调用与服务化支持
 - **独立 HTTP 服务**：内置高可用 HTTP 服务，通过 `./bin/start-server.sh <port> [token]` 启动
   - 安全默认：鉴权默认开启。启动时传入 `token` 即启用鉴权（请求头 `tre-token`）；未传 `token` 则进入 open 模式并打印醒目警告，仅建议本地调试使用
-- **Java 远程 SDK**：提供 `TreRemoteHttpClient` 实现透明 RPC 远程调用
+- **Java 远程 SDK**：提供 `GdlHttpEngineClient` 实现透明 RPC 远程调用
 - **HTTP RESTful API**：支持各类第三方系统（Python, Go, Node.js 等）通过 HTTP 接口触发任务计算、查询结果与注册本体
 - **MCP 协议支持**：支持 Model Context Protocol，暴露 `start_task`、`get_task_result` 工具方法，方便 AI Agent / 大模型客户端（CherryStudio、Claude、Dify 等）直接调度
 - 详见文档：[docs/REMOTE_API_GUIDE.md](docs/REMOTE_API_GUIDE.md)

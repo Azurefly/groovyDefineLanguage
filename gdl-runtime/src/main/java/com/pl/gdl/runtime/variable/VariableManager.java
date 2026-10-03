@@ -13,11 +13,6 @@ public class VariableManager {
     private VariableManager() {
         register(new CurrentTimeVar());
         register(new CommonIncrementVar());
-        register(new BdosPartitionIncrementVar());
-        register(new BdosPartitionModifyIncrementVar());
-        register(new BdosReadLastNPartitionVar());
-        register(new BdosReadLastOnePartitionVar());
-        register(new BdosReadLastPartitionVar());
     }
 
     public static VariableManager getInstance() {

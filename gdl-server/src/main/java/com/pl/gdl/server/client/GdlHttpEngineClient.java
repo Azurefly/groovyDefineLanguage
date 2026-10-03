@@ -19,24 +19,24 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * {@link TreClient} 的远程 HTTP 实现，通过 {@link HttpTransport} 调用远端
+ * {@link GdlEngineClient} 的远程 HTTP 实现，通过 {@link HttpTransport} 调用远端
  * GDL 引擎远程服务的 {@code /tre/api/*} 接口（路径保留历史命名以兼容）。
  *
  * <p>远端接口返回的 JSON 字段存在历史兼容差异（如 {@code msg}/{@code message}、
  * {@code result}/{@code data}），本类在解析时做了兼容处理；所有从 JSON 取出的
  * 字符串字段均使用安全转换，绝不直接做 {@code (String)} 强转。</p>
  */
-public class TreRemoteHttpClient implements TreClient {
-    private static final Logger log = LoggerFactory.getLogger(TreRemoteHttpClient.class);
+public class GdlHttpEngineClient implements GdlEngineClient {
+    private static final Logger log = LoggerFactory.getLogger(GdlHttpEngineClient.class);
 
     private final HttpTransport transport;
     private final String token;
 
-    public TreRemoteHttpClient(String baseUrl) {
+    public GdlHttpEngineClient(String baseUrl) {
         this(new UrlConnectionHttpTransport(baseUrl), null);
     }
 
-    public TreRemoteHttpClient(String baseUrl, String token) {
+    public GdlHttpEngineClient(String baseUrl, String token) {
         this(new UrlConnectionHttpTransport(baseUrl), token);
     }
 
@@ -47,11 +47,11 @@ public class TreRemoteHttpClient implements TreClient {
      *
      * @param transport HTTP 传输层实现，不能为 {@code null}
      */
-    public TreRemoteHttpClient(HttpTransport transport) {
+    public GdlHttpEngineClient(HttpTransport transport) {
         this(transport, null);
     }
 
-    public TreRemoteHttpClient(HttpTransport transport, String token) {
+    public GdlHttpEngineClient(HttpTransport transport, String token) {
         if (transport == null) {
             throw new IllegalArgumentException("transport cannot be null");
         }

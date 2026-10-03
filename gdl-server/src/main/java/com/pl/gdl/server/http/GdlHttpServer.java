@@ -4,8 +4,8 @@ import com.pl.gdl.common.exception.OntologyValidationException;
 import com.pl.gdl.common.model.OntoInfoRsp;
 import com.pl.gdl.common.model.RegisterRsp;
 import com.pl.gdl.common.model.TaskResult;
-import com.pl.gdl.server.client.TreClient;
-import com.pl.gdl.server.client.TreClientImpl;
+import com.pl.gdl.server.client.GdlEngineClient;
+import com.pl.gdl.server.client.GdlEngineClientImpl;
 import com.pl.gdl.server.config.ServerConfig;
 import com.pl.gdl.server.mcp.McpTool;
 import com.pl.gdl.server.mcp.McpToolRegistry;
@@ -46,7 +46,7 @@ public class GdlHttpServer {
     private static final Logger log = LoggerFactory.getLogger(GdlHttpServer.class);
 
     private final ServerConfig config;
-    private final TreClient treClient;
+    private final GdlEngineClient treClient;
     private final McpToolRegistry mcpRegistry;
     private HttpServer server;
     private ExecutorService executor;
@@ -58,12 +58,12 @@ public class GdlHttpServer {
     }
 
     /**
-     * 使用指定配置构造服务端，任务执行使用默认的本地 {@link TreClientImpl}。
+     * 使用指定配置构造服务端，任务执行使用默认的本地 {@link GdlEngineClientImpl}。
      *
      * @param config 服务配置，{@code null} 时使用默认配置
      */
     public GdlHttpServer(ServerConfig config) {
-        this(config, new TreClientImpl());
+        this(config, new GdlEngineClientImpl());
     }
 
     /**
@@ -72,9 +72,9 @@ public class GdlHttpServer {
      * @param config    服务配置，{@code null} 时使用默认配置
      * @param treClient 任务执行客户端，{@code null} 时使用默认的本地实现
      */
-    public GdlHttpServer(ServerConfig config, TreClient treClient) {
+    public GdlHttpServer(ServerConfig config, GdlEngineClient treClient) {
         this.config = config != null ? config : new ServerConfig();
-        this.treClient = treClient != null ? treClient : new TreClientImpl();
+        this.treClient = treClient != null ? treClient : new GdlEngineClientImpl();
         this.mcpRegistry = new McpToolRegistry(this.treClient);
     }
 
@@ -119,7 +119,7 @@ public class GdlHttpServer {
      * 停止 HTTP 服务并释放全部资源。
      *
      * <p>停止顺序：先停止 {@code HttpServer} 不再接受新请求，再关闭请求处理线程池
-     * （{@code shutdownNow} + 等待终止），最后若任务客户端为 {@link TreClientImpl}
+     * （{@code shutdownNow} + 等待终止），最后若任务客户端为 {@link GdlEngineClientImpl}
      * 则关闭其任务后台线程池。</p>
      */
     public synchronized void stop() {
@@ -140,7 +140,7 @@ public class GdlHttpServer {
                 this.executor = null;
             }
         }
-        if (this.treClient instanceof TreClientImpl impl) {
+        if (this.treClient instanceof GdlEngineClientImpl impl) {
             impl.close();
         }
         this.running = false;
@@ -174,9 +174,9 @@ public class GdlHttpServer {
     /**
      * 返回服务使用的任务执行客户端。
      *
-     * @return {@link TreClient} 实例
+     * @return {@link GdlEngineClient} 实例
      */
-    public TreClient getTreClient() {
+    public GdlEngineClient getGdlEngineClient() {
         return treClient;
     }
 
@@ -447,7 +447,7 @@ public class GdlHttpServer {
 
     // --- Helper Methods ---
 
-    /** 请求体大小上限：10MB（与客户端 TreRemoteHttpClient 的响应上限对称），防止 GB 级 body 耗尽堆内存。 */
+    /** 请求体大小上限：10MB（与客户端 GdlHttpEngineClient 的响应上限对称），防止 GB 级 body 耗尽堆内存。 */
     private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
 
     private static String readBody(HttpExchange exchange) throws IOException {

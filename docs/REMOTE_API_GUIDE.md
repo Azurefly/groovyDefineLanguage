@@ -31,18 +31,18 @@ GDL（GroovyDefine Language）引擎提供了完善的远程调用支持，允�
 
 ## 二、第三方 Java 服务接入方式 (Java SDK)
 
-第三方 Java 服务只需引入 `gdl-server` 或 `gdl-common` 模块，即可使用内置的 `TreRemoteHttpClient` 实现透明 RPC 远程调用。
+第三方 Java 服务只需引入 `gdl-server` 或 `gdl-common` 模块，即可使用内置的 `GdlHttpEngineClient` 实现透明 RPC 远程调用。
 
 ### 1. 初始化客户端
 
 ```java
-import com.pl.gdl.server.client.TreClient;
-import com.pl.gdl.server.client.TreRemoteHttpClient;
+import com.pl.gdl.server.client.GdlEngineClient;
+import com.pl.gdl.server.client.GdlHttpEngineClient;
 
 // 创建远程连接客户端
 String serverUrl = "http://192.168.1.100:8080";
 String token = "my-secret-token-123"; // 未启用 token 时填 null
-TreClient client = new TreRemoteHttpClient(serverUrl, token);
+GdlEngineClient client = new GdlHttpEngineClient(serverUrl, token);
 ```
 
 ### 2. 远程提交 GDL 脚本计算任务并查询结果

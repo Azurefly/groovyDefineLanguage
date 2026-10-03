@@ -4,8 +4,8 @@ import com.pl.gdl.common.enums.TaskStatus;
 import com.pl.gdl.common.model.OntoInfoRsp;
 import com.pl.gdl.common.model.RegisterRsp;
 import com.pl.gdl.common.model.TaskResult;
-import com.pl.gdl.server.client.TreClient;
-import com.pl.gdl.server.client.TreRemoteHttpClient;
+import com.pl.gdl.server.client.GdlEngineClient;
+import com.pl.gdl.server.client.GdlHttpEngineClient;
 import com.pl.gdl.server.config.ServerConfig;
 import com.pl.gdl.server.http.GdlHttpServer;
 import com.pl.gdl.server.http.HttpRequest;
@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 public class RemoteServiceIntegrationTest {
 
     private static GdlHttpServer server;
-    private static TreClient remoteClient;
+    private static GdlEngineClient remoteClient;
     private static InProcessHttpTransport transport;
     private static final String TEST_TOKEN = "tre-secret-token-123";
 
@@ -37,7 +37,7 @@ public class RemoteServiceIntegrationTest {
         server.start();
 
         transport = new InProcessHttpTransport(server);
-        remoteClient = new TreRemoteHttpClient(transport, TEST_TOKEN);
+        remoteClient = new GdlHttpEngineClient(transport, TEST_TOKEN);
     }
 
     @AfterAll
@@ -185,7 +185,7 @@ public class RemoteServiceIntegrationTest {
     @Test
     public void testTokenAuthenticationFailure() {
         // Client with incorrect token
-        TreClient badClient = new TreRemoteHttpClient(transport, "wrong-token");
+        GdlEngineClient badClient = new GdlHttpEngineClient(transport, "wrong-token");
 
         assertThatThrownBy(() -> badClient.getOntologies(null))
                 .isInstanceOf(RuntimeException.class)
@@ -195,7 +195,7 @@ public class RemoteServiceIntegrationTest {
     @Test
     public void testMissingTokenReturns401() {
         // Client without any token (single-arg constructor) accessing a protected endpoint
-        TreClient noAuthClient = new TreRemoteHttpClient(transport);
+        GdlEngineClient noAuthClient = new GdlHttpEngineClient(transport);
 
         assertThatThrownBy(() -> noAuthClient.getOntologies(null))
                 .isInstanceOf(RuntimeException.class)

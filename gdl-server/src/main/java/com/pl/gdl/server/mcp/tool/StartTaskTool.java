@@ -1,6 +1,6 @@
 package com.pl.gdl.server.mcp.tool;
 
-import com.pl.gdl.server.client.TreClient;
+import com.pl.gdl.server.client.GdlEngineClient;
 import com.pl.gdl.server.mcp.McpTool;
 
 import java.util.LinkedHashMap;
@@ -13,9 +13,9 @@ import java.util.Map;
  * 工具轮询执行结果。</p>
  */
 public class StartTaskTool implements McpTool {
-    private final TreClient treClient;
+    private final GdlEngineClient treClient;
 
-    public StartTaskTool(TreClient treClient) {
+    public StartTaskTool(GdlEngineClient treClient) {
         this.treClient = treClient;
     }
 
@@ -32,7 +32,7 @@ public class StartTaskTool implements McpTool {
     @Override
     public Map<String, Object> getInputSchema() {
         // 注意：schema 中刻意不包含历史拼写错误的 "bussinessId" 字段——
-        // TreClient#startTask(String, Map) 只接收脚本与 params，下游没有任何逻辑
+        // GdlEngineClient#startTask(String, Map) 只接收脚本与 params，下游没有任何逻辑
         // 使用该字段，保留它只会误导调用方传入无用参数。
         return Map.of(
                 "type", "object",

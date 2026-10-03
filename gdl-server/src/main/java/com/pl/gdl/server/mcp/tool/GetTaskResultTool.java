@@ -1,15 +1,15 @@
 package com.pl.gdl.server.mcp.tool;
 
 import com.pl.gdl.common.model.TaskResult;
-import com.pl.gdl.server.client.TreClient;
+import com.pl.gdl.server.client.GdlEngineClient;
 import com.pl.gdl.server.mcp.McpTool;
 
 import java.util.Map;
 
 public class GetTaskResultTool implements McpTool {
-    private final TreClient treClient;
+    private final GdlEngineClient treClient;
 
-    public GetTaskResultTool(TreClient treClient) {
+    public GetTaskResultTool(GdlEngineClient treClient) {
         this.treClient = treClient;
     }
 

@@ -1,8 +1,8 @@
 package com.pl.gdl.server.mcp;
 
-import com.pl.gdl.server.client.TreClient;
+import com.pl.gdl.server.client.GdlEngineClient;
 import com.pl.gdl.server.mcp.tool.GetTaskResultTool;
-import com.pl.gdl.server.mcp.tool.GetTsmlToDagTool;
+import com.pl.gdl.server.mcp.tool.GetGmlToDagTool;
 import com.pl.gdl.server.mcp.tool.StartTaskTool;
 
 import java.util.*;
@@ -23,10 +23,10 @@ public class McpToolRegistry {
      *
      * @param treClient 工具底层调用的任务客户端
      */
-    public McpToolRegistry(TreClient treClient) {
+    public McpToolRegistry(GdlEngineClient treClient) {
         register(new StartTaskTool(treClient));
         register(new GetTaskResultTool(treClient));
-        register(new GetTsmlToDagTool(treClient));
+        register(new GetGmlToDagTool(treClient));
     }
 
     /**

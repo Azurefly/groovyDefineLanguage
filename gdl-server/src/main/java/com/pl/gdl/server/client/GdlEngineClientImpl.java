@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * {@link TreClient} 的本地（进程内）实现，直接调用各引擎模块完成任务。
+ * {@link GdlEngineClient} 的本地（进程内）实现，直接调用各引擎模块完成任务。
  *
  * <p>任务提交为<b>真异步</b>：{@link #startTask(String, Map)} 生成 taskId 后先写入
  * {@code RUNNING} 状态占位并立即返回，实际的联邦执行在内部守护线程池中进行；
@@ -28,8 +28,8 @@ import java.util.concurrent.TimeUnit;
  * <p>任务结果缓存带 30 分钟 TTL（读取时惰性检查过期）与 1000 条上限：
  * 写入超限时先清理已过期条目，仍超限则淘汰创建时间最早的条目。</p>
  */
-public class TreClientImpl implements TreClient {
-    private static final Logger log = LoggerFactory.getLogger(TreClientImpl.class);
+public class GdlEngineClientImpl implements GdlEngineClient {
+    private static final Logger log = LoggerFactory.getLogger(GdlEngineClientImpl.class);
 
     /** 任务结果缓存 TTL：30 分钟。 */
     private static final long TASK_RESULT_TTL_MILLIS = 30L * 60 * 1000;

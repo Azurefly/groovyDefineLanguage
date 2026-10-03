@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * 基于 JDK {@link HttpURLConnection} 的 {@link HttpTransport} 实现，
- * 用于 {@code TreRemoteHttpClient} 调用远端 GDL 引擎服务。
+ * 用于 {@code GdlHttpEngineClient} 调用远端 GDL 引擎服务。
  *
  * <p><b>资源与安全约束：</b></p>
  * <ul>
