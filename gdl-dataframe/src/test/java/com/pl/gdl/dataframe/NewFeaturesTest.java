@@ -275,4 +275,59 @@ public class NewFeaturesTest {
     public static Double doubleIt(Double x) {
         return x == null ? null : x * 2;
     }
+
+    @Test
+    public void testHttpOperator() throws Exception {
+        // 启动本地 HTTP mock 服务
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        int port = server.getAddress().getPort();
+        server.createContext("/api/user", exchange -> {
+            String response = "{\"name\":\"张三\",\"age\":30}";
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.getBytes().length);
+            try (java.io.OutputStream os = exchange.getResponseBody()) {
+                os.write(response.getBytes());
+            }
+        });
+        server.start();
+        try {
+            InMemoryEngine engine = new InMemoryEngine();
+            RowDataFrame df = new RowDataFrame(java.util.List.of(
+                    new ColumnInfo("id", "INT")));
+            df.addRowValue(java.util.List.of(1));
+            df.addRowValue(java.util.List.of(2));
+            engine.registerTable("t_http", df);
+
+            com.pl.gdl.dataframe.operator.advanced.HttpOperator httpOp =
+                    new com.pl.gdl.dataframe.operator.advanced.HttpOperator(
+                            new FromOperator(new HiveDatasource(), "t_http"),
+                            "GET", "http://127.0.0.1:" + port + "/api/user");
+            com.pl.gdl.dataframe.http.HttpCallExecutor executor =
+                    new com.pl.gdl.dataframe.http.HttpCallExecutor();
+            RowDataFrame input = engine.execute(new FromOperator(new HiveDatasource(), "t_http"));
+            RowDataFrame result;
+            try {
+                result = executor.execute(httpOp, input);
+            } catch (Exception e) {
+                // 沙箱环境限制 JVM 直连 localhost（如 Muse 沙箱），跳过
+                if (e.getMessage() != null && e.getMessage().contains("Other TCP connections is turned off")) {
+                    org.junit.jupiter.api.Assumptions.abort("沙箱限制 JVM 联网，跳过 HTTP 真实调用测试");
+                    return;
+                }
+                throw e;
+            }
+
+            assertThat(result.rowSize()).isEqualTo(2);
+            // 验证响应列已追加
+            boolean hasName = false;
+            for (ColumnInfo col : result.getColumns()) {
+                if ("http_name".equals(col.getColumnName())) hasName = true;
+            }
+            assertThat(hasName).isTrue();
+            assertThat(String.valueOf(result.getRow(0).getValue("http_name"))).isEqualTo("张三");
+        } finally {
+            server.stop(0);
+        }
+    }
 }

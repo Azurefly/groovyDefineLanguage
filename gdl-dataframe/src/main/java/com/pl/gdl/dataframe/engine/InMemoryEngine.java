@@ -480,6 +480,11 @@ public class InMemoryEngine implements ExecutionEngine {
             return pivotData(input, pivotOp);
         }
 
+        if (operator instanceof com.pl.gdl.dataframe.operator.advanced.HttpOperator httpOp) {
+            RowDataFrame input = !httpOp.getUpstream().isEmpty() ? execute(httpOp.getUpstream().get(0)) : new RowDataFrame();
+            return new com.pl.gdl.dataframe.http.HttpCallExecutor().execute(httpOp, input);
+        }
+
         if (operator instanceof FromOperator fromOp) {
             String tbl = fromOp.getTableName().toLowerCase(Locale.ROOT);
             if (inMemoryTables.containsKey(tbl)) {
