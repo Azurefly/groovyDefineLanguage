@@ -99,12 +99,27 @@ public class SqlPushdownEngine implements ExecutionEngine {
         // 需要行号时再包一层 ROW_NUMBER() OVER (ORDER BY ...) AS 索引列
         if (operator instanceof SortOperator sortOp) {
             String base = toSql(sortOp.getUpstream().get(0));
-            String orderClause = " ORDER BY " + String.join(", ", sortOp.getSortExpressions());
+            // 空排序表达式时（如纯 index 场景），ORDER BY 子句为空
+            String orderClause = sortOp.getSortExpressions().isEmpty() ? ""
+                    : " ORDER BY " + String.join(", ", sortOp.getSortExpressions());
             if (sortOp.getIndexColumnName() != null) {
-                return "SELECT *, ROW_NUMBER() OVER (" + orderClause + ") AS " + sortOp.getIndexColumnName() +
+                String overClause = orderClause.isEmpty() ? "()" : "(" + orderClause + ")";
+                return "SELECT *, ROW_NUMBER() OVER " + overClause + " AS " + sortOp.getIndexColumnName() +
                         " FROM (" + base + ") sub_sort" + orderClause;
             }
             return "SELECT * FROM (" + base + ") sub_sort" + orderClause;
+        }
+
+        // DISTRIBUTE SORT：Hive 的 DISTRIBUTE BY + SORT BY。
+        // 单机内存引擎无"分区"概念，降级为全局 ORDER BY（先分区列，后排序列）。
+        // 注意：语义与 Hive 不完全等同（Hive 只保证分区内有序），文档已说明。
+        if (operator instanceof DistributeSortOperator dsOp) {
+            String base = toSql(dsOp.getUpstream().get(0));
+            String orderBy = dsOp.getPartitionCols();
+            if (dsOp.getSortCols() != null && !dsOp.getSortCols().isBlank()) {
+                orderBy += ", " + dsOp.getSortCols();
+            }
+            return "SELECT * FROM (" + base + ") sub_ds ORDER BY " + orderBy;
         }
 
         // LIMIT：SELECT * FROM (上游) sub_limit + 方言分页子句
@@ -114,12 +129,14 @@ public class SqlPushdownEngine implements ExecutionEngine {
         }
 
         // SAMPLE：随机采样。按行数用 ORDER BY RAND() LIMIT n，按比例用 WHERE RAND() < fraction
+        // seed 不为空时透传给 RAND(seed)，保证可复现
         if (operator instanceof SampleOperator sampleOp) {
             String base = toSql(sampleOp.getUpstream().get(0));
+            String randExpr = sampleOp.getSeed() != null ? "RAND(" + sampleOp.getSeed() + ")" : "RAND()";
             if (sampleOp.isBySize()) {
-                return "SELECT * FROM (" + base + ") sub_sample ORDER BY RAND() LIMIT " + sampleOp.getSampleSize();
+                return "SELECT * FROM (" + base + ") sub_sample ORDER BY " + randExpr + " LIMIT " + sampleOp.getSampleSize();
             } else {
-                return "SELECT * FROM (" + base + ") sub_sample WHERE RAND() < " + sampleOp.getFraction();
+                return "SELECT * FROM (" + base + ") sub_sample WHERE " + randExpr + " < " + sampleOp.getFraction();
             }
         }
 

@@ -6,8 +6,10 @@ import com.pl.gdl.runtime.variable.DynamicVariable;
 import java.util.Map;
 
 /**
- * BDOS 最新单个分区变量：分区信息需要从 BDOS 元数据服务获取，当前未实现。
+ * @deprecated 该变量依赖已下线的内部 BDOS 元数据服务，当前未实现，调用会抛 UnsupportedOperationException。
+ * 如需类似功能，请自行实现 DynamicVariable 接口。本类将在未来版本中移除。
  */
+@Deprecated
 public class BdosReadLastOnePartitionVar implements DynamicVariable {
     @Override
     public String getGeneratorName() {

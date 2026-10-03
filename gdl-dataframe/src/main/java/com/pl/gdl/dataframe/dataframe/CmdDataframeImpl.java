@@ -136,16 +136,24 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     @Override
     public CmdDataframe sort(String... sortExpressions) {
+        if (sortExpressions == null || sortExpressions.length == 0) {
+            throw new IllegalArgumentException("sortExpressions must not be empty, use index() for row numbering without sorting");
+        }
         return new CmdDataframeImpl(new SortOperator(operator, sortExpressions), executionEngine);
     }
 
     @Override
     public CmdDataframe index(String rowNumCol) {
+        // 保持不可变性：始终创建新的 SortOperator，不修改已有算子
+        SortOperator sortOp;
         if (operator instanceof SortOperator) {
-            ((SortOperator) operator).setIndexColumnName(rowNumCol);
-            return this;
+            // 复制已有排序表达式到新算子
+            SortOperator existing = (SortOperator) operator;
+            sortOp = new SortOperator(existing.getUpstream().get(0),
+                    existing.getSortExpressions().toArray(new String[0]));
+        } else {
+            sortOp = new SortOperator(operator);
         }
-        SortOperator sortOp = new SortOperator(operator);
         sortOp.setIndexColumnName(rowNumCol);
         return new CmdDataframeImpl(sortOp, executionEngine);
     }
@@ -178,6 +186,16 @@ public class CmdDataframeImpl implements CmdDataframe {
     @Override
     public CmdDataframe sample(double fraction) {
         return new CmdDataframeImpl(new SampleOperator(operator, fraction), executionEngine);
+    }
+
+    @Override
+    public CmdDataframe sample(int n, long seed) {
+        return new CmdDataframeImpl(new SampleOperator(operator, n, seed), executionEngine);
+    }
+
+    @Override
+    public CmdDataframe sample(double fraction, long seed) {
+        return new CmdDataframeImpl(new SampleOperator(operator, fraction, seed), executionEngine);
     }
 
     @Override

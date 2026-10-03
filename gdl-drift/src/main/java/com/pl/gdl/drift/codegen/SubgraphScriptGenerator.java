@@ -21,14 +21,13 @@ public class SubgraphScriptGenerator {
 
             for (CutEdge cut : remoteSg.getOutboundCuts()) {
                 sb.append("// Remote processing and driftTo shipping\n");
-                // 原型桩实现：远端子图的源表尚未从真实元数据/血缘生成，
-                // 当前使用占位表名 "source_table"，生产使用前需替换为真实源表推导逻辑
-                sb.append("def df_").append(sanitizeVarName(cut.getSourceNode().getId()))
-                  .append(" = from(hiveDs, \"source_table\")\n");
-                sb.append("driftTo(\"").append(escapeGroovyString(cut.getTargetAreaCode())).append("\").attach(df_")
-                  .append(sanitizeVarName(cut.getSourceNode().getId())).append(", \"\", \"")
-                  .append(escapeGroovyString(cut.getIntermediateTableName())).append("\", \"")
-                  .append(escapeGroovyString(cut.getExchangeType())).append("\")\n");
+                // 远端子图的源表需要从真实元数据/血缘推导，当前未实现。
+                // 生成明确抛异常的代码，避免静默使用占位表名导致数据错误。
+                // 注意：throw 之后的代码不会执行，driftTo 调用已移除。
+                sb.append("throw new UnsupportedOperationException(")
+                  .append("\"SubgraphScriptGenerator: 远端子图源表推导未实现，")
+                  .append("cut=").append(escapeGroovyString(cut.getSourceNode().getId()))
+                  .append("\")\n");
             }
             remoteSg.setGeneratedScript(sb.toString());
         }

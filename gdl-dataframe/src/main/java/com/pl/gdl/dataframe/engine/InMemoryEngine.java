@@ -105,16 +105,22 @@ public class InMemoryEngine implements ExecutionEngine {
                 }
             }
 
-            // 构建透视 SQL
+            // 构建透视 SQL（别名冲突时追加序号消解，如 Q_1、Q_1_2）
             StringBuilder sql = new StringBuilder("SELECT ");
             java.util.List<String> groupCols = pivotOp.getGroupByColumns();
             if (!groupCols.isEmpty()) {
                 sql.append(String.join(", ", groupCols)).append(", ");
             }
+            java.util.Set<String> usedAliases = new java.util.HashSet<>();
             for (int i = 0; i < pivotValues.size(); i++) {
                 if (i > 0) sql.append(", ");
                 String pv = pivotValues.get(i).replace("'", "''");
-                String alias = pivotValues.get(i).replaceAll("[^a-zA-Z0-9_]", "_");
+                String baseAlias = pivotValues.get(i).replaceAll("[^a-zA-Z0-9_]", "_");
+                String alias = baseAlias;
+                int suffix = 2;
+                while (!usedAliases.add(alias)) {
+                    alias = baseAlias + "_" + (suffix++);
+                }
                 sql.append(pivotOp.getAggFunction())
                    .append("(CASE WHEN ").append(pivotOp.getPivotColumn())
                    .append(" = '").append(pv).append("' THEN ")

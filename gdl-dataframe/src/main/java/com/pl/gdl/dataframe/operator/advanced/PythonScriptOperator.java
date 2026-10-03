@@ -3,6 +3,12 @@ package com.pl.gdl.dataframe.operator.advanced;
 import com.pl.gdl.dataframe.datasource.CmdDatasource;
 import com.pl.gdl.dataframe.operator.LogicalOperator;
 
+/**
+ * @deprecated Python 脚本执行尚未实现，当前版本不可用。
+ * 如需自定义逻辑，请使用 {@code groovy(Closure)}。
+ * 本类将在未来版本中移除或实现。
+ */
+@Deprecated
 public class PythonScriptOperator extends LogicalOperator {
     private final CmdDatasource datasource;
     private final String outputTable;

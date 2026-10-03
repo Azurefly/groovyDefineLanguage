@@ -48,7 +48,10 @@ public class DriftTest {
         SubgraphScriptGenerator generator = new SubgraphScriptGenerator();
         generator.generateScripts(plan);
 
-        assertThat(plan.getRemoteSubgraphs().get("320100").getGeneratedScript()).contains("driftTo(\"320000\")");
+        // 远端子图源表推导未实现，生成明确抛异常的代码（而非静默占位表名）
+        assertThat(plan.getRemoteSubgraphs().get("320100").getGeneratedScript())
+                .contains("UnsupportedOperationException")
+                .contains("远端子图源表推导未实现");
         assertThat(plan.getLocalSubgraph().getGeneratedScript()).contains("driftFrom");
     }
 

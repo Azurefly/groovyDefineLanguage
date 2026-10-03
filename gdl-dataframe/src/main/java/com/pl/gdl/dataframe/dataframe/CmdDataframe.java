@@ -32,6 +32,8 @@ public interface CmdDataframe {
     CmdDataframe distinct(String... cols);
     CmdDataframe sample(int n);
     CmdDataframe sample(double fraction);
+    CmdDataframe sample(int n, long seed);
+    CmdDataframe sample(double fraction, long seed);
     CmdDataframe validate(String condition, String message);
     CmdDataframe describe();
     CmdDataframe pivot(String pivotColumn, String valueColumn, String aggFunction, String... groupByColumns);
@@ -65,10 +67,20 @@ public interface CmdDataframe {
     CmdDataframe view();
 
     // Realtime Windows
+    // 注意：窗口算子当前仅在路线图中，调用会抛 UnsupportedOperationException
     CmdDataframe tumbleWindow(String timeCol, String size, String unit, String... offsetAndUnit);
     CmdDataframe hopWindow(String timeCol, String slide, String sUnit, String size, String wUnit, String... offsetAndUnit);
     CmdDataframe cumulateWindow(String timeCol, String step, String stepUnit, String max, String maxUnit, String... offsetAndUnit);
+    /**
+     * @deprecated 调度属于任务编排层，不应作为 DataFrame 算子。当前未实现，调用会抛异常。
+     * 将在未来版本中移除，或迁移到 gdl-server 的任务调度器。
+     */
+    @Deprecated
     CmdDataframe periodReactor(String cronExpr);
+    /**
+     * @deprecated 增量拉取尚未实现，调用会抛异常。将在未来版本中提供独立的增量同步 API。
+     */
+    @Deprecated
     CmdDataframe increment(CmdDatasource ds, String querySql, String incField, int hitCount, int maxWaitSec);
 
     // Advanced & Script
