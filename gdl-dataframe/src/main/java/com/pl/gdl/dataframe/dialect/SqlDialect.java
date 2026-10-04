@@ -43,4 +43,34 @@ public interface SqlDialect {
      * 生成"覆盖写指定分区"的 SQL（先删除分区数据再插入查询结果）。
      */
     String formatOverwritePartition(String tableName, String partitionSpec, String selectSql);
+
+    /**
+     * 日期加减：dateExpr + n 个单位（如 DATE_ADD(dateExpr, INTERVAL n DAY)）。
+     * unit 取值为 DAY/MONTH/YEAR/HOUR/MINUTE/SECOND。
+     */
+    default String formatDateAdd(String dateExpr, int amount, String unit) {
+        return "DATEADD('" + unit + "', " + amount + ", " + dateExpr + ")";
+    }
+
+    /**
+     * 日期差值：返回 endDate - startDate 的单位数。
+     * unit 取值为 DAY/MONTH/YEAR/HOUR/MINUTE/SECOND。
+     */
+    default String formatDateDiff(String unit, String startDate, String endDate) {
+        return "DATEDIFF('" + unit + "', " + startDate + ", " + endDate + ")";
+    }
+
+    /**
+     * 日期格式化为字符串（如 yyyy-MM-dd）。
+     */
+    default String formatDateFormat(String dateExpr, String pattern) {
+        return "FORMATDATETIME(" + dateExpr + ", '" + pattern + "')";
+    }
+
+    /**
+     * 当前日期时间。
+     */
+    default String formatCurrentTimestamp() {
+        return "CURRENT_TIMESTAMP";
+    }
 }

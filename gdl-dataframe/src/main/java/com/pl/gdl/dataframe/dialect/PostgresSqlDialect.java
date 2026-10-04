@@ -52,4 +52,29 @@ public class PostgresSqlDialect implements SqlDialect {
         // Postgres 使用 RANDOM()，不支持 seed 参数
         return "RANDOM()";
     }
+
+    @Override
+    public String formatDateAdd(String dateExpr, int amount, String unit) {
+        return "(" + dateExpr + " + INTERVAL '" + amount + " " + unit + "')";
+    }
+
+    @Override
+    public String formatDateDiff(String unit, String startDate, String endDate) {
+        return "EXTRACT(EPOCH FROM (" + endDate + " - " + startDate + ")) / " + unitToSeconds(unit);
+    }
+
+    private static String unitToSeconds(String unit) {
+        switch (unit.toUpperCase()) {
+            case "DAY": return "86400";
+            case "HOUR": return "3600";
+            case "MINUTE": return "60";
+            case "SECOND": return "1";
+            default: return "86400";
+        }
+    }
+
+    @Override
+    public String formatDateFormat(String dateExpr, String pattern) {
+        return "TO_CHAR(" + dateExpr + ", '" + pattern + "')";
+    }
 }

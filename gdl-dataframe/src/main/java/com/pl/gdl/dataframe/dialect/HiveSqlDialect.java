@@ -48,4 +48,24 @@ public class HiveSqlDialect implements SqlDialect {
     public String formatOverwritePartition(String tableName, String partitionSpec, String selectSql) {
         return "INSERT OVERWRITE TABLE " + tableName + " PARTITION (" + partitionSpec + ") " + selectSql;
     }
+
+    @Override
+    public String formatDateAdd(String dateExpr, int amount, String unit) {
+        // Hive DATE_ADD 只支持天；其他单位用 INTERVAL 表达式
+        if ("DAY".equalsIgnoreCase(unit)) {
+            return "DATE_ADD(" + dateExpr + ", " + amount + ")";
+        }
+        return "(" + dateExpr + " + INTERVAL " + amount + " " + unit + "S)";
+    }
+
+    @Override
+    public String formatDateDiff(String unit, String startDate, String endDate) {
+        // Hive DATEDIFF 只返回天数
+        return "DATEDIFF(" + endDate + ", " + startDate + ")";
+    }
+
+    @Override
+    public String formatDateFormat(String dateExpr, String pattern) {
+        return "DATE_FORMAT(" + dateExpr + ", '" + pattern + "')";
+    }
 }

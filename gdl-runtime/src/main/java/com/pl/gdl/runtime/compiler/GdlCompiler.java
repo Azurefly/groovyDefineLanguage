@@ -160,8 +160,41 @@ public class GdlCompiler {
     }
 
     public DagGraph parseToDag(String scriptText, Map<String, Object> params) {
-        GdlExecutionResult res = execute(scriptText, params);
-        return res.getContext().getDagGraph();
+        GdlExecutionContext context = new GdlExecutionContext();
+        if (params != null) {
+            context.setScriptParameters(params);
+        }
+        GdlExecutionContext.set(context);
+        try {
+            // 尝试执行以构建完整 DAG；数据执行失败不影响已注册的 DAG 节点
+            try {
+                executeWithContext(context, scriptText, params);
+            } catch (Exception e) {
+                // 数据执行失败（如表不存在）时仍返回已构建的 DAG 结构
+                // 仅编译期错误才抛出
+                if (isCompilationError(e)) {
+                    throw e;
+                }
+            }
+            return context.getDagGraph();
+        } finally {
+            GdlExecutionContext.clear();
+        }
+    }
+
+    private void executeWithContext(GdlExecutionContext context, String scriptText, Map<String, Object> params) {
+        Binding binding = new Binding();
+        if (params != null) {
+            params.forEach(binding::setVariable);
+        }
+        GroovyShell shell = new GroovyShell(parentClassLoader, binding, configuration);
+        Script script = shell.parse(scriptText);
+        script.run();
+    }
+
+    private boolean isCompilationError(Exception e) {
+        return e instanceof MultipleCompilationErrorsException
+                || e instanceof org.codehaus.groovy.control.CompilationFailedException;
     }
 
     public static class GdlExecutionResult {
