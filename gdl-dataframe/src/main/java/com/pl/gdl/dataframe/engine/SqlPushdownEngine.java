@@ -38,6 +38,19 @@ public class SqlPushdownEngine implements ExecutionEngine {
     @Override
     public String toSql(LogicalOperator operator) {
         if (operator == null) return "";
+        return toSqlNode(operator);
+    }
+
+    /**
+     * 上游递归钩子：子类可覆写以拦截特定算子（如 JdbcExecutionEngine 把无法下推的
+     * validate/describe/pivot 物化为临时表）。默认行为与直接递归 toSql 一致。
+     */
+    protected String toSqlUpstream(LogicalOperator upstream) {
+        return toSqlNode(upstream);
+    }
+
+    private String toSqlNode(LogicalOperator operator) {
+        if (operator == null) return "";
 
         // FROM：SELECT * FROM 表名 [AS 别名]
         if (operator instanceof FromOperator fromOp) {
@@ -47,7 +60,7 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
         // ALIAS：SELECT * FROM (上游) AS 别名；别名为空时直接透传上游 SQL
         if (operator instanceof AliasOperator aliasOp) {
-            String base = toSql(aliasOp.getUpstream().get(0));
+            String base = toSqlUpstream(aliasOp.getUpstream().get(0));
             String aliasName = aliasOp.getAliasName();
             if (aliasName == null || aliasName.isBlank()) {
                 return base;
@@ -62,19 +75,19 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
         // WHERE：SELECT * FROM (上游) sub_where WHERE 条件
         if (operator instanceof WhereOperator whereOp) {
-            String base = toSql(whereOp.getUpstream().get(0));
+            String base = toSqlUpstream(whereOp.getUpstream().get(0));
             return "SELECT * FROM (" + base + ") sub_where WHERE " + whereOp.getCondition();
         }
 
         // SELECT：SELECT 表达式列表 FROM (上游) sub_select
         if (operator instanceof SelectOperator selectOp) {
-            String base = toSql(selectOp.getUpstream().get(0));
+            String base = toSqlUpstream(selectOp.getUpstream().get(0));
             return "SELECT " + String.join(", ", selectOp.getExpressions()) + " FROM (" + base + ") sub_select";
         }
 
         // MAPPING：SELECT 表达式 AS 新列名, ... FROM (上游) sub_mapping
         if (operator instanceof MappingOperator mappingOp) {
-            String base = toSql(mappingOp.getUpstream().get(0));
+            String base = toSqlUpstream(mappingOp.getUpstream().get(0));
             StringJoiner sj = new StringJoiner(", ");
             for (Map.Entry<String, String> entry : mappingOp.getMapping().entrySet()) {
                 sj.add(entry.getValue() + " AS " + entry.getKey());
@@ -84,13 +97,13 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
         // WITH_COLUMN：SELECT *, 表达式 AS 新列 FROM (上游) sub_with
         if (operator instanceof WithColumnOperator withOp) {
-            String base = toSql(withOp.getUpstream().get(0));
+            String base = toSqlUpstream(withOp.getUpstream().get(0));
             return "SELECT *, " + withOp.getExpression() + " AS " + withOp.getColumnName() + " FROM (" + base + ") sub_with";
         }
 
         // GROUP：SELECT 分组列, 聚合表达式 FROM (上游) sub_group GROUP BY 分组列
         if (operator instanceof GroupOperator groupOp) {
-            String base = toSql(groupOp.getUpstream().get(0));
+            String base = toSqlUpstream(groupOp.getUpstream().get(0));
             return "SELECT " + groupOp.getGroupByCols() + ", " + groupOp.getAggregateExprs() +
                     " FROM (" + base + ") sub_group GROUP BY " + groupOp.getGroupByCols();
         }
@@ -98,7 +111,7 @@ public class SqlPushdownEngine implements ExecutionEngine {
         // SORT：SELECT * FROM (上游) sub_sort ORDER BY 排序表达式；
         // 需要行号时再包一层 ROW_NUMBER() OVER (ORDER BY ...) AS 索引列
         if (operator instanceof SortOperator sortOp) {
-            String base = toSql(sortOp.getUpstream().get(0));
+            String base = toSqlUpstream(sortOp.getUpstream().get(0));
             // 空排序表达式时（如纯 index 场景），ORDER BY 子句为空
             String orderClause = sortOp.getSortExpressions().isEmpty() ? ""
                     : " ORDER BY " + String.join(", ", sortOp.getSortExpressions());
@@ -114,7 +127,7 @@ public class SqlPushdownEngine implements ExecutionEngine {
         // 单机内存引擎无"分区"概念，降级为全局 ORDER BY（先分区列，后排序列）。
         // 注意：语义与 Hive 不完全等同（Hive 只保证分区内有序），文档已说明。
         if (operator instanceof DistributeSortOperator dsOp) {
-            String base = toSql(dsOp.getUpstream().get(0));
+            String base = toSqlUpstream(dsOp.getUpstream().get(0));
             String orderBy = dsOp.getPartitionCols();
             if (dsOp.getSortCols() != null && !dsOp.getSortCols().isBlank()) {
                 orderBy += ", " + dsOp.getSortCols();
@@ -124,14 +137,14 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
         // LIMIT：SELECT * FROM (上游) sub_limit + 方言分页子句
         if (operator instanceof LimitOperator limitOp) {
-            String base = toSql(limitOp.getUpstream().get(0));
+            String base = toSqlUpstream(limitOp.getUpstream().get(0));
             return "SELECT * FROM (" + base + ") sub_limit " + dialect.formatLimit(limitOp.getOffset(), limitOp.getLimit());
         }
 
         // SAMPLE：随机采样。按行数用 ORDER BY rand + 方言分页，按比例用 WHERE rand < fraction
         // seed 不为空时透传，保证可复现；随机函数名按方言适配（如 PG 用 RANDOM()）
         if (operator instanceof SampleOperator sampleOp) {
-            String base = toSql(sampleOp.getUpstream().get(0));
+            String base = toSqlUpstream(sampleOp.getUpstream().get(0));
             String randExpr = dialect.formatRandom(sampleOp.getSeed());
             if (sampleOp.isBySize()) {
                 return "SELECT * FROM (" + base + ") sub_sample ORDER BY " + randExpr + " " + dialect.formatLimit(0, sampleOp.getSampleSize());
@@ -142,7 +155,7 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
         // DISTINCT：无列时 SELECT DISTINCT *，否则 SELECT DISTINCT 列, ...（子查询包一层）
         if (operator instanceof DistinctOperator distinctOp) {
-            String base = toSql(distinctOp.getUpstream().get(0));
+            String base = toSqlUpstream(distinctOp.getUpstream().get(0));
             if (distinctOp.getDistinctColumns().isEmpty()) {
                 return "SELECT DISTINCT * FROM (" + base + ") sub_distinct";
             } else {
@@ -152,14 +165,14 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
         // GROUP_SORT_FIRST：分组取首行，由方言拼窗口函数
         if (operator instanceof GroupSortFirstOperator gsfOp) {
-            String base = toSql(gsfOp.getUpstream().get(0));
+            String base = toSqlUpstream(gsfOp.getUpstream().get(0));
             return dialect.formatGroupSortFirst(gsfOp.getGroupCols(), gsfOp.getSortCols(), "(" + base + ") sub_gsf");
         }
 
         // UNION：(左) UNION [ALL] (右)
         if (operator instanceof UnionOperator unionOp) {
-            String left = toSql(unionOp.getUpstream().get(0));
-            String right = toSql(unionOp.getUpstream().get(1));
+            String left = toSqlUpstream(unionOp.getUpstream().get(0));
+            String right = toSqlUpstream(unionOp.getUpstream().get(1));
             String kw = unionOp.isAll() ? " UNION ALL " : " UNION ";
             return "(" + left + ")" + kw + "(" + right + ")";
         }
@@ -169,8 +182,8 @@ public class SqlPushdownEngine implements ExecutionEngine {
             if (subOp.isAll() && dialect instanceof HiveSqlDialect) {
                 throw new UnsupportedOperationException("Hive 方言不支持 EXCEPT ALL（subtractAll）");
             }
-            String left = toSql(subOp.getUpstream().get(0));
-            String right = toSql(subOp.getUpstream().get(1));
+            String left = toSqlUpstream(subOp.getUpstream().get(0));
+            String right = toSqlUpstream(subOp.getUpstream().get(1));
             String kw = subOp.isAll() ? " EXCEPT ALL " : " EXCEPT ";
             return "(" + left + ")" + kw + "(" + right + ")";
         }
@@ -180,16 +193,16 @@ public class SqlPushdownEngine implements ExecutionEngine {
             if (intersectOp.isAll() && dialect instanceof HiveSqlDialect) {
                 throw new UnsupportedOperationException("Hive 方言不支持 INTERSECT ALL（intersectAll）");
             }
-            String left = toSql(intersectOp.getUpstream().get(0));
-            String right = toSql(intersectOp.getUpstream().get(1));
+            String left = toSqlUpstream(intersectOp.getUpstream().get(0));
+            String right = toSqlUpstream(intersectOp.getUpstream().get(1));
             String kw = intersectOp.isAll() ? " INTERSECT ALL " : " INTERSECT ";
             return "(" + left + ")" + kw + "(" + right + ")";
         }
 
         // JOIN：SELECT * FROM (左) left_tbl 连接类型 (右) right_tbl ON 条件
         if (operator instanceof JoinOperator joinOp) {
-            String left = toSql(joinOp.getUpstream().get(0));
-            String right = toSql(joinOp.getUpstream().get(1));
+            String left = toSqlUpstream(joinOp.getUpstream().get(0));
+            String right = toSqlUpstream(joinOp.getUpstream().get(1));
             String type = switch (joinOp.getJoinType()) {
                 case LEFT -> "LEFT JOIN";
                 case RIGHT -> "RIGHT JOIN";
@@ -201,15 +214,15 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
         // EXISTS：SELECT * FROM (左) a WHERE [NOT] EXISTS (SELECT 1 FROM (右) b WHERE 条件)
         if (operator instanceof ExistsOperator existsOp) {
-            String left = toSql(existsOp.getUpstream().get(0));
-            String right = toSql(existsOp.getUpstream().get(1));
+            String left = toSqlUpstream(existsOp.getUpstream().get(0));
+            String right = toSqlUpstream(existsOp.getUpstream().get(1));
             String kw = existsOp.isNot() ? "NOT EXISTS" : "EXISTS";
             return "SELECT * FROM (" + left + ") a WHERE " + kw + " (SELECT 1 FROM (" + right + ") b WHERE " + existsOp.getOnCondition() + ")";
         }
 
         // TO：INSERT [OVERWRITE] [PARTITION] INTO 目标表 上游查询；覆盖逻辑交由方言拼写
         if (operator instanceof ToOperator toOp) {
-            String selectSql = toSql(toOp.getUpstream().get(0));
+            String selectSql = toSqlUpstream(toOp.getUpstream().get(0));
             if (toOp.isOverwrite()) {
                 if (toOp.isOverwritePartition() && toOp.getPartitionSpec() != null) {
                     return dialect.formatOverwritePartition(toOp.getTargetTableName(), toOp.getPartitionSpec(), selectSql);

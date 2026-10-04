@@ -27,8 +27,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <ul>
  *   <li>JoinOperator 构造期 NPE（超类构造器触发监听器回调可覆写方法）</li>
  *   <li>read() 丢失列元数据导致 writeCsv 全空行</li>
- *   <li>validate/describe/pivot 在 JDBC 引擎上抛 UnsupportedOperationException</li>
+ *   <li>validate/describe/pivot 在 JDBC 引擎上抛 UnsupportedOperationException
+ *      （链尾走混合执行，链中走临时表物化）</li>
  *   <li>SqliteSqlDialect 缺 formatRandom 覆盖导致 sample(seed) 生成非法 RAND()</li>
+ *   <li>列名大小写跨方言不一致（H2 大写折叠）：JDBC 引擎统一转小写</li>
+ *   <li>SQLite 不支持 seed 随机：sample(seed) 走内存确定性采样</li>
  * </ul>
  */
 class JdbcEngineRegressionTest {
@@ -127,5 +130,110 @@ class JdbcEngineRegressionTest {
     void sqliteFormatRandomUsesRandomFunction() {
         assertThat(new SqliteSqlDialect().formatRandom(null)).isEqualTo("RANDOM()");
         assertThat(new SqliteSqlDialect().formatRandom(42L)).isEqualTo("RANDOM()");
+    }
+
+    @Test
+    void validateMidChainWorksOnJdbc() {
+        // validate 在链中间：后接 limit/select，必须透传上游数据
+        RowDataFrame result = from("t_reg_emp")
+                .validate("salary > 0", "薪资门禁")
+                .limit(2)
+                .select("id", "name")
+                .collect();
+        assertThat(result.rowSize()).isEqualTo(2);
+        assertThat(result.getColumns().get(0).getColumnName()).isEqualTo("id");
+    }
+
+    @Test
+    void validateMidChainBlocksOnJdbc() {
+        engine.execute(new QueryOperator(ds,
+                "INSERT INTO t_reg_emp VALUES (98, 'bad2', '电子', -5)"));
+        try {
+            assertThatThrownBy(() -> from("t_reg_emp")
+                    .validate("salary > 0", "链中门禁拦截")
+                    .limit(2)
+                    .select("id")
+                    .collect())
+                    .isInstanceOf(DataQualityException.class)
+                    .hasMessageContaining("链中门禁拦截");
+        } finally {
+            engine.execute(new QueryOperator(ds, "DELETE FROM t_reg_emp WHERE id = 98"));
+        }
+    }
+
+    @Test
+    void pivotMidChainWorksOnJdbc() {
+        // pivot 在链中间：后接 sort，透视结果物化为临时表后继续 SQL
+        RowDataFrame result = from("t_reg_emp")
+                .pivot("dept", "salary", "SUM", "dept")
+                .sort("dept")
+                .collect();
+        assertThat(result.rowSize()).isEqualTo(2);
+        // sort 在 pivot 之后生效：两行按 dept 有序（不硬编码中文排序规则）
+        String d0 = String.valueOf((Object) result.getRow(0).getValue("dept"));
+        String d1 = String.valueOf((Object) result.getRow(1).getValue("dept"));
+        assertThat(d0.compareTo(d1) <= 0).as("pivot 后的 sort 应生效").isTrue();
+        assertThat(java.util.Set.of(d0, d1)).containsExactlyInAnyOrder("电子", "服装");
+    }
+
+    @Test
+    void describeMidChainWorksOnJdbc() {
+        RowDataFrame result = from("t_reg_emp")
+                .describe()
+                .limit(2)
+                .collect();
+        assertThat(result.rowSize()).isEqualTo(2);
+    }
+
+    @Test
+    void jdbcColumnLabelsAreLowercased() {
+        // H2 把未加引号的别名折叠为大写，引擎统一转小写以跨源一致
+        RowDataFrame result = engine.execute(
+                new QueryOperator(ds, "SELECT id AS MyId, salary AS TOTAL FROM t_reg_emp WHERE id = 1"));
+        assertThat(result.getColumns().get(0).getColumnName()).isEqualTo("myid");
+        assertThat(result.getColumns().get(1).getColumnName()).isEqualTo("total");
+        assertThat((Object) result.getRow(0).getValue("myid")).isEqualTo(1);
+    }
+
+    @Test
+    void sqliteSeededSampleIsDeterministic() throws Exception {
+        java.nio.file.Path tmp = java.nio.file.Files.createTempFile("gdl-seed-test", ".db");
+        try {
+            com.pl.gdl.dataframe.datasource.SqliteDatasource sqliteDs =
+                    new com.pl.gdl.dataframe.datasource.SqliteDatasource(tmp.toString());
+            ExecutionEngine sqliteEngine = registry.createExecutionEngine(sqliteDs);
+            sqliteEngine.execute(new QueryOperator(sqliteDs,
+                    "CREATE TABLE t_s(id INTEGER PRIMARY KEY, v TEXT)"));
+            StringBuilder ins = new StringBuilder("INSERT INTO t_s VALUES ");
+            for (int i = 1; i <= 100; i++) {
+                if (i > 1) ins.append(", ");
+                ins.append("(").append(i).append(", 'v").append(i).append("')");
+            }
+            sqliteEngine.execute(new QueryOperator(sqliteDs, ins.toString()));
+            CmdDataframe base = new CmdDataframeImpl(new FromOperator(sqliteDs, "t_s"), sqliteEngine);
+            RowDataFrame first = base.sample(10, 42L).collect();
+            RowDataFrame second = base.sample(10, 42L).collect();
+            assertThat(first.rowSize()).isEqualTo(10);
+            assertThat(second.rowSize()).isEqualTo(10);
+            for (int i = 0; i < 10; i++) {
+                assertThat((Object) second.getRow(i).getValue("id"))
+                        .as("同一种子两次采样顺序必须一致")
+                        .isEqualTo(first.getRow(i).getValue("id"));
+            }
+            // 不同种子大概率顺序不同（确定性机制生效的反证）
+            RowDataFrame other = base.sample(10, 43L).collect();
+            boolean sameOrder = true;
+            for (int i = 0; i < 10; i++) {
+                Object a = other.getRow(i).getValue("id");
+                Object b = first.getRow(i).getValue("id");
+                if (!a.equals(b)) {
+                    sameOrder = false;
+                    break;
+                }
+            }
+            assertThat(sameOrder).as("不同种子应产生不同顺序").isFalse();
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmp);
+        }
     }
 }

@@ -25,6 +25,14 @@ public interface SqlDialect {
     }
 
     /**
+     * 该方言的随机函数是否支持 seed 参数（如 H2/MySQL 的 RAND(seed)）。
+     * 不支持时（如 SQLite 的 RANDOM()），带 seed 的采样走内存确定性采样。
+     */
+    default boolean supportsSeededRandom() {
+        return true;
+    }
+
+    /**
      * 生成"分组内按排序取首行"的 SQL（通常基于 ROW_NUMBER 窗口函数）。
      */
     String formatGroupSortFirst(String groupCols, String sortCols, String sourceTable);

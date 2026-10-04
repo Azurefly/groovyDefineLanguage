@@ -83,7 +83,7 @@ public class InMemoryEngine implements ExecutionEngine {
             for (int i = 0; i < df.getColumns().size(); i++) {
                 if (i > 0) sb.append(", ");
                 ColumnInfo col = df.getColumns().get(i);
-                sb.append(col.getColumnName()).append(" ").append(toH2Type(col.getDataTypeName()));
+                sb.append(col.getColumnName()).append(" ").append(toCanonicalDdlType(col.getDataTypeName()));
             }
             sb.append(")");
             try (Statement stmt = conn.createStatement()) {
@@ -268,7 +268,8 @@ public class InMemoryEngine implements ExecutionEngine {
      * 数据质量检查：在内存表中执行条件查询，统计不满足条件的行数。
      * 使用 H2 SQL 的 NOT (condition) 来找出违规行。
      */
-    private void validateDataQuality(RowDataFrame input,
+    /** 包内可见：供 JdbcExecutionEngine 做链中 validate 物化时复用。 */
+    void validateDataQuality(RowDataFrame input,
             com.pl.gdl.dataframe.operator.base.ValidateOperator validateOp) {
         if (input.rowSize() == 0) {
             return;
@@ -306,7 +307,11 @@ public class InMemoryEngine implements ExecutionEngine {
      * 将 ColumnInfo 的数据类型名映射为 H2 SQL 类型。
      * 未知类型默认 VARCHAR(500)，保证兼容性。
      */
-    private static String toH2Type(String dataTypeName) {
+    /**
+     * 将列类型名规范化为各数据源通用的 DDL 类型（VARCHAR(500)/BIGINT/DOUBLE 等，
+     * 在 H2/SQLite/MySQL/PostgreSQL/Hive 均合法）。
+     * <p>包内可见：供 JdbcExecutionEngine 物化临时表时复用。 */
+    static String toCanonicalDdlType(String dataTypeName) {
         if (dataTypeName == null) {
             return "VARCHAR(500)";
         }
@@ -366,7 +371,20 @@ public class InMemoryEngine implements ExecutionEngine {
             case "VARCHAR":
             case "CHARACTER VARYING":
             case "NVARCHAR":
+            case "string":
+            case "text":
+            case "varchar":
                 return "VARCHAR(500)";
+            case "long":
+                return "BIGINT";
+            case "int":
+            case "integer":
+                return "INTEGER";
+            case "double":
+            case "float":
+                return "DOUBLE";
+            case "boolean":
+                return "BOOLEAN";
             default:
                 return "VARCHAR(500)";
         }
