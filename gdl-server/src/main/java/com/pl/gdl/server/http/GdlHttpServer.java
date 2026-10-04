@@ -349,6 +349,7 @@ public class GdlHttpServer {
                 resp.put("msg", "操作成功");
                 resp.put("status", tr.getStatus());
                 resp.put("taskId", tr.getTaskId());
+                resp.put("message", tr.getMessage());
                 resp.put("result", tr.getResult());
                 resp.put("success", true);
                 return jsonResponse(200, resp);

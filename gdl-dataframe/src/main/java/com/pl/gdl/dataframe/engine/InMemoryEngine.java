@@ -120,7 +120,8 @@ public class InMemoryEngine implements ExecutionEngine {
     /**
      * 透视表：行转列。使用 CASE WHEN + 聚合实现。
      */
-    private RowDataFrame pivotData(RowDataFrame input,
+    /** 包内可见：供 JdbcExecutionEngine 做"上游下推 + 内存收尾"混合执行时复用。 */
+    RowDataFrame pivotData(RowDataFrame input,
             com.pl.gdl.dataframe.operator.base.PivotOperator pivotOp) {
         if (input.rowSize() == 0) {
             return new RowDataFrame();
@@ -139,7 +140,8 @@ public class InMemoryEngine implements ExecutionEngine {
                 }
             }
 
-            // 构建透视 SQL（别名冲突时追加序号消解，如 Q_1、Q_1_2）
+            // 构建透视 SQL：别名直接使用原值加双引号（支持中文等非 ASCII），
+            // 冲突时在引号内追加序号消解；内嵌双引号按 SQL 标准转义为 ""。
             StringBuilder sql = new StringBuilder("SELECT ");
             java.util.List<String> groupCols = pivotOp.getGroupByColumns();
             if (!groupCols.isEmpty()) {
@@ -149,11 +151,11 @@ public class InMemoryEngine implements ExecutionEngine {
             for (int i = 0; i < pivotValues.size(); i++) {
                 if (i > 0) sql.append(", ");
                 String pv = pivotValues.get(i).replace("'", "''");
-                String baseAlias = pivotValues.get(i).replaceAll("[^a-zA-Z0-9_]", "_");
-                String alias = baseAlias;
+                String quoted = pivotValues.get(i).replace("\"", "\"\"");
+                String alias = quoted;
                 int suffix = 2;
                 while (!usedAliases.add(alias)) {
-                    alias = baseAlias + "_" + (suffix++);
+                    alias = quoted + "_" + (suffix++);
                 }
                 sql.append(pivotOp.getAggFunction())
                    .append("(CASE WHEN ").append(pivotOp.getPivotColumn())
@@ -198,7 +200,8 @@ public class InMemoryEngine implements ExecutionEngine {
     /**
      * 数据探查：为每列生成统计信息行。
      */
-    private RowDataFrame describeData(RowDataFrame input) {
+    /** 包内可见：供 JdbcExecutionEngine 做"上游下推 + 内存收尾"混合执行时复用。 */
+    RowDataFrame describeData(RowDataFrame input) {
         java.util.List<com.pl.gdl.common.model.ColumnInfo> outCols = java.util.List.of(
                 new com.pl.gdl.common.model.ColumnInfo("column_name", "STRING"),
                 new com.pl.gdl.common.model.ColumnInfo("data_type", "STRING"),
@@ -318,20 +321,29 @@ public class InMemoryEngine implements ExecutionEngine {
         switch (t) {
             case "INT":
             case "INTEGER":
+            case "INT4":
+            case "SERIAL":
                 return "INTEGER";
             case "SMALLINT":
             case "SHORT":
+            case "INT2":
                 return "SMALLINT";
             case "TINYINT":
             case "BYTE":
                 return "TINYINT";
             case "BIGINT":
             case "LONG":
+            case "INT8":
+            case "BIGSERIAL":
                 return "BIGINT";
             case "DOUBLE":
+            case "DOUBLE PRECISION":
             case "FLOAT":
-            case "REAL":
+            case "FLOAT8":
+            case "FLOAT4":
                 return "DOUBLE";
+            case "REAL":
+                return "REAL";
             case "DECIMAL":
             case "NUMERIC":
                 return "DECIMAL(38,10)";
@@ -347,9 +359,13 @@ public class InMemoryEngine implements ExecutionEngine {
                 return "TIMESTAMP";
             case "CHAR":
                 return "CHAR(1)";
+            case "CHARACTER":
+                return "CHAR(1)";
             case "STRING":
             case "TEXT":
             case "VARCHAR":
+            case "CHARACTER VARYING":
+            case "NVARCHAR":
                 return "VARCHAR(500)";
             default:
                 return "VARCHAR(500)";
@@ -372,18 +388,27 @@ public class InMemoryEngine implements ExecutionEngine {
             switch (type) {
                 case "INT":
                 case "INTEGER":
+                case "INT4":
+                case "INT2":
+                case "SERIAL":
                     if (val instanceof Number) {
                         return ((Number) val).intValue();
                     }
                     return Integer.parseInt(val.toString().trim());
                 case "BIGINT":
                 case "LONG":
+                case "INT8":
+                case "BIGSERIAL":
                     if (val instanceof Number) {
                         return ((Number) val).longValue();
                     }
                     return Long.parseLong(val.toString().trim());
                 case "DOUBLE":
+                case "DOUBLE PRECISION":
                 case "FLOAT":
+                case "FLOAT8":
+                case "FLOAT4":
+                case "REAL":
                     if (val instanceof Number) {
                         return ((Number) val).doubleValue();
                     }

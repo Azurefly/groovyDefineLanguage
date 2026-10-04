@@ -36,11 +36,14 @@ public class JoinOperator extends LogicalOperator {
 
     @Override
     public String getOperatorName() {
-        return joinType.getSyntaxName();
+        // 构造期间超类 LogicalOperator 会触发监听器回调 getOperatorName()，
+        // 此时 joinType 尚未赋值（final 字段在 super() 返回后才初始化），必须判空。
+        return joinType == null ? "join" : joinType.getSyntaxName();
     }
 
     @Override
     public String toString() {
+        if (joinType == null) return "join(<constructing>)";
         return joinType.getSyntaxName() + "(" + upstream.get(1).getTempTableName() + ", " + onCondition + ")";
     }
 }
