@@ -59,6 +59,10 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
             Connection prevConn = activeConnection.get();
             activeConnection.set(connection);
             try {
+                // 终端 describe：直接下推执行（多查询+组装，非单 SQL）
+                if (operator instanceof DescribeOperator describeOp) {
+                    return executeDescribePushdown(describeOp);
+                }
                 // 终端也可能是非 SQL 算子（如 validate 链尾），统一走拦截入口
                 String sql = isNonSqlRoot(operator) ? toSqlUpstream(operator) : toSql(operator);
                 if (sql == null || sql.isBlank()) return new RowDataFrame();
@@ -131,8 +135,9 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
             return resolveValidate(validateOp);
         }
         if (upstream instanceof DescribeOperator describeOp) {
-            RowDataFrame input = executeUpstreamOrEmpty(describeOp);
-            return "SELECT * FROM " + materializeTempTable(new InMemoryEngine().describeData(input));
+            // 大数据友好：describe 下推为聚合 SQL（单遍扫描、O(1) 内存），
+            // 结果仅为列数行的小表，物化为临时表后上层继续纯 SQL
+            return "SELECT * FROM " + materializeTempTable(executeDescribePushdown(describeOp));
         }
         if (upstream instanceof PivotOperator pivotOp) {
             RowDataFrame input = executeUpstreamOrEmpty(pivotOp);
@@ -179,6 +184,129 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
             throw new DataQualityException(validateOp.getMessage(), violations);
         }
         return subSql;
+    }
+
+    private static final java.util.Set<String> NUMERIC_TYPES = java.util.Set.of(
+            "BIGINT", "INT", "INTEGER", "SMALLINT", "TINYINT", "LONG",
+            "DOUBLE", "DOUBLE PRECISION", "FLOAT", "FLOAT4", "FLOAT8", "REAL",
+            "DECIMAL", "NUMERIC", "NUMBER");
+
+    /** describe 的 8 列输出结构（与 InMemoryEngine.describeData 一致）。 */
+    private static RowDataFrame emptyDescribeFrame() {
+        return new RowDataFrame(java.util.List.of(
+                new ColumnInfo("column_name", "STRING"),
+                new ColumnInfo("data_type", "STRING"),
+                new ColumnInfo("row_count", "BIGINT"),
+                new ColumnInfo("null_count", "BIGINT"),
+                new ColumnInfo("distinct_count", "BIGINT"),
+                new ColumnInfo("min_value", "STRING"),
+                new ColumnInfo("max_value", "STRING"),
+                new ColumnInfo("avg_value", "STRING")));
+    }
+
+    /**
+     * describe 下推执行：上游数据不离库，按列分批做聚合查询
+     * （COUNT/NULL/DISTINCT/MIN/MAX，数值列再加 AVG），Java 侧组装为
+     * 与 InMemoryEngine.describeData 同格式的结果。
+     * <p>大数据友好：单遍扫描、O(1) 内存，100 亿行宽表也安全；
+     * 宽表按 50 列分批，避免单条 SQL 表达式过多。
+     */
+    private RowDataFrame executeDescribePushdown(DescribeOperator describeOp) {
+        RowDataFrame output = emptyDescribeFrame();
+        if (describeOp.getUpstream().isEmpty()) return output;
+        String upstreamSql = toSqlUpstream(describeOp.getUpstream().get(0));
+        if (upstreamSql == null || upstreamSql.isBlank()) return output;
+        Connection conn = activeConnection.get();
+        if (conn == null) {
+            throw new UnsupportedOperationException(
+                    "describe 下推需要 JDBC 连接（纯 SQL 生成模式不支持）");
+        }
+        String sourceSql = "SELECT * FROM (" + upstreamSql + ") sub_describe_src";
+        try {
+            // 零数据取列元数据（不传输任何行）
+            List<ColumnInfo> cols = queryColumns(conn, sourceSql + " WHERE 1=0");
+            if (cols.isEmpty()) return output;
+            // 按 50 列分批聚合
+            for (int from = 0; from < cols.size(); from += 50) {
+                List<ColumnInfo> batch = cols.subList(from, Math.min(from + 50, cols.size()));
+                runDescribeBatch(conn, sourceSql, batch, output);
+            }
+        } catch (SQLException e) {
+            throw new GdlExecutionException(
+                    "describe 下推执行失败: " + e.getMessage(), e);
+        }
+        return output;
+    }
+
+    /** 零数据查询，仅取列元数据。 */
+    private List<ColumnInfo> queryColumns(Connection conn, String sql) throws SQLException {
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            ResultSetMetaData meta = rs.getMetaData();
+            List<ColumnInfo> cols = new ArrayList<>();
+            for (int i = 1; i <= meta.getColumnCount(); i++) {
+                String typeName;
+                try {
+                    typeName = meta.getColumnTypeName(i);
+                } catch (SQLException ignored) {
+                    typeName = "UNKNOWN";
+                }
+                cols.add(new ColumnInfo(normLabel(meta, i), typeName));
+            }
+            return cols;
+        }
+    }
+
+    /** 对一批列执行一次聚合查询，把结果组装进 output。 */
+    private void runDescribeBatch(Connection conn, String sourceSql,
+                                  List<ColumnInfo> batch, RowDataFrame output) throws SQLException {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS rc");
+        List<Boolean> numeric = new ArrayList<>(batch.size());
+        for (int i = 0; i < batch.size(); i++) {
+            ColumnInfo col = batch.get(i);
+            // 简单小写标识符不加引号：H2 会把未加引号的标识符折叠为大写，
+            // 与源表未加引号建表时的行为一致；加引号反而因大小写敏感找不到列
+            String q = col.getColumnName();
+            if (!q.matches("[a-z_][a-z0-9_]*")) {
+                q = getDialect().quoteIdentifier(q);
+            }
+            boolean isNumeric = col.getDataTypeName() != null
+                    && NUMERIC_TYPES.contains(col.getDataTypeName().toUpperCase(java.util.Locale.ROOT));
+            numeric.add(isNumeric);
+            sql.append(", COUNT(").append(q).append(") AS q").append(i).append("_nn");
+            sql.append(", COUNT(DISTINCT ").append(q).append(") AS q").append(i).append("_dc");
+            sql.append(", MIN(CAST(").append(q).append(" AS VARCHAR(500))) AS q").append(i).append("_min");
+            sql.append(", MAX(CAST(").append(q).append(" AS VARCHAR(500))) AS q").append(i).append("_max");
+            if (isNumeric) {
+                sql.append(", AVG(CAST(").append(q).append(" AS DOUBLE)) AS q").append(i).append("_avg");
+            }
+        }
+        sql.append(" FROM (").append(sourceSql).append(") sub_describe_batch");
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql.toString())) {
+            if (!rs.next()) return;
+            long rowCount = rs.getLong("rc");
+            for (int i = 0; i < batch.size(); i++) {
+                ColumnInfo col = batch.get(i);
+                long nonNull = rs.getLong("q" + i + "_nn");
+                Row row = new Row();
+                row.setValue("column_name", col.getColumnName());
+                row.setValue("data_type", col.getDataTypeName());
+                row.setValue("row_count", rowCount);
+                row.setValue("null_count", rowCount - nonNull);
+                row.setValue("distinct_count", rs.getLong("q" + i + "_dc"));
+                row.setValue("min_value", rs.getString("q" + i + "_min"));
+                row.setValue("max_value", rs.getString("q" + i + "_max"));
+                if (numeric.get(i)) {
+                    // 用 getString 而非 getObject().toString()，与内存版行为一致
+                    //（如 H2 AVG 返回的 BigDecimal 两种取法格式不同）
+                    row.setValue("avg_value", rs.getString("q" + i + "_avg"));
+                } else {
+                    row.setValue("avg_value", null);
+                }
+                output.addRow(row);
+            }
+        }
     }
 
     /**

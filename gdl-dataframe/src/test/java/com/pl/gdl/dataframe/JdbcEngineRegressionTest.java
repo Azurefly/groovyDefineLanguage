@@ -236,4 +236,30 @@ class JdbcEngineRegressionTest {
             java.nio.file.Files.deleteIfExists(tmp);
         }
     }
+
+    @Test
+    void describePushdownMatchesInMemory() {
+        // describe 下推：聚合 SQL，结果正确，且上游数据不离库（大数据安全）
+        // t_reg_emp: (1,alice,电子,8000), (2,bob,电子,9000), (3,carol,服装,7000)
+        RowDataFrame result = from("t_reg_emp").describe().collect();
+        assertThat(result.rowSize()).isEqualTo(4);
+        java.util.Map<String, com.pl.gdl.common.model.Row> byCol = new java.util.HashMap<>();
+        for (int i = 0; i < result.rowSize(); i++) {
+            com.pl.gdl.common.model.Row r = result.getRow(i);
+            byCol.put(String.valueOf((Object) r.getValue("column_name")), r);
+        }
+        com.pl.gdl.common.model.Row id = byCol.get("id");
+        assertThat((Object) id.getValue("row_count")).isEqualTo(3L);
+        assertThat((Object) id.getValue("null_count")).isEqualTo(0L);
+        assertThat((Object) id.getValue("distinct_count")).isEqualTo(3L);
+        assertThat(String.valueOf((Object) id.getValue("avg_value"))).isEqualTo("2");
+        com.pl.gdl.common.model.Row salary = byCol.get("salary");
+        assertThat((Object) salary.getValue("distinct_count")).isEqualTo(3L);
+        // avg 值按数值比较（H2 对 DOUBLE 的 AVG 可能输出科学计数法如 8E+3，旧内存版亦然）
+        assertThat(Double.parseDouble(String.valueOf((Object) salary.getValue("avg_value"))))
+                .isEqualTo(8000.0);
+        com.pl.gdl.common.model.Row dept = byCol.get("dept");
+        assertThat((Object) dept.getValue("distinct_count")).isEqualTo(2L);
+        assertThat((Object) dept.getValue("avg_value")).isNull();
+    }
 }
