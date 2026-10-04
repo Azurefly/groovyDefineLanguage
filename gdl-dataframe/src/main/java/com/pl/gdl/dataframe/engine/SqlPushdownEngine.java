@@ -32,6 +32,8 @@ public class SqlPushdownEngine implements ExecutionEngine {
 
     @Override
     public RowDataFrame execute(LogicalOperator operator) {
+        // dry-run（纯规划）模式：不触碰数据源，直接返回空结果，杜绝任何副作用
+        if (DryRun.isActive()) return new RowDataFrame();
         return new RowDataFrame();
     }
 

@@ -175,4 +175,53 @@ public class GdlCompilerTest {
         GdlCompiler.GdlExecutionResult result = compiler.execute("def foo() { 42 }\nfoo()", Map.of());
         assertThat(result.getScriptResult()).isEqualTo(42);
     }
+
+    @Test
+    public void testParseToDagHasNoSideEffects() throws Exception {
+        // parseToDag 必须是纯规划：脚本中的 DDL/collect/writeCsv 都不得真实执行
+        java.nio.file.Path csv = java.nio.file.Files.createTempFile("gdl-dryrun", ".csv");
+        java.nio.file.Files.deleteIfExists(csv);
+        String csvPath = csv.toString().replace("\\", "/");
+        GdlCompiler compiler = new GdlCompiler();
+        String script = """
+            def ds = datasource("H2", [url: "jdbc:h2:mem:dryrun_sideeffect;DB_CLOSE_DELAY=-1"])
+            query(ds, "CREATE TABLE t_dryrun(id INT)").collect()
+            from(ds, "t_dryrun").writeCsv("CSVMARKER")
+            """.replace("CSVMARKER", csvPath);
+
+        DagGraph dag = compiler.parseToDag(script, Map.of());
+
+        // 1. DAG 正常构建（含 query/from 节点）
+        assertThat(dag.getNodes()).isNotEmpty();
+        // 2. CSV 文件未被创建
+        assertThat(java.nio.file.Files.exists(csv)).as("dry-run 下 writeCsv 不得落地文件").isFalse();
+        // 3. 表未被创建（DDL 未执行）
+        try (java.sql.Connection c = java.sql.DriverManager.getConnection(
+                "jdbc:h2:mem:dryrun_sideeffect;DB_CLOSE_DELAY=-1");
+             java.sql.Statement s = c.createStatement()) {
+            try {
+                s.executeQuery("SELECT * FROM t_dryrun");
+                org.junit.jupiter.api.Assertions.fail("dry-run 下 DDL 不得执行，表不应存在");
+            } catch (java.sql.SQLException expected) {
+                assertThat(expected.getMessage()).containsIgnoringCase("t_dryrun");
+            }
+        }
+    }
+
+    @Test
+    public void testParseToDagDoesNotSwallowRealExecution() {
+        // dry-run 标记不得泄漏：parseToDag 之后正常 execute 仍能真实执行
+        GdlCompiler compiler = new GdlCompiler();
+        compiler.parseToDag("from(datasource(\"H2\", [url: \"jdbc:h2:mem:leakcheck\"]), \"t\").collect()",
+                Map.of());
+        String script = """
+            def ds = datasource("H2", [url: "jdbc:h2:mem:leakcheck2;DB_CLOSE_DELAY=-1"])
+            def df = query(ds, "SELECT 7 AS answer")
+            returnDf(df)
+            """;
+        GdlCompiler.GdlExecutionResult result = compiler.execute(script, Map.of());
+        RowDataFrame rows = result.getReturnDf().collect();
+        assertThat(rows.rowSize()).isEqualTo(1);
+        assertThat((Object) rows.getRow(0).getValue("answer")).isEqualTo(7);
+    }
 }

@@ -494,6 +494,8 @@ public class InMemoryEngine implements ExecutionEngine {
 
     @Override
     public RowDataFrame execute(LogicalOperator operator) {
+        // dry-run（纯规划）模式：不触碰数据源（含内部 H2），直接返回空结果，杜绝任何副作用
+        if (DryRun.isActive()) return new RowDataFrame();
         if (operator instanceof LlmCallOperator llmOp) {
             RowDataFrame input = !llmOp.getUpstream().isEmpty() ? execute(llmOp.getUpstream().get(0)) : new RowDataFrame();
             return new LlmCallExecutor().execute(llmOp, input);

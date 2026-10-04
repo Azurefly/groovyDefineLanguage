@@ -159,6 +159,13 @@ public class GdlCompiler {
         return e;
     }
 
+    /**
+     * 纯规划：将脚本解析为 DAG，不产生任何副作用。
+     * <p>脚本仍会被"执行"一次以构建算子链，但全程处于 dry-run 模式：
+     * 所有 ExecutionEngine 不触碰数据源、writeCsv/writeJson 不落地文件，
+     * 因此 collect/DDL/写回等终端动作都不会真实发生。算子构造与 DAG
+     * 节点注册不受影响。
+     */
     public DagGraph parseToDag(String scriptText, Map<String, Object> params) {
         GdlExecutionContext context = new GdlExecutionContext();
         if (params != null) {
@@ -166,12 +173,13 @@ public class GdlCompiler {
         }
         GdlExecutionContext.set(context);
         try {
-            // 尝试执行以构建完整 DAG；数据执行失败不影响已注册的 DAG 节点
             try {
-                executeWithContext(context, scriptText, params);
+                // dry-run 下执行脚本以构建完整 DAG；DSL 语义错误仍会抛出
+                com.pl.gdl.dataframe.engine.DryRun.run(() ->
+                        executeWithContext(context, scriptText, params));
             } catch (Exception e) {
-                // 数据执行失败（如表不存在）时仍返回已构建的 DAG 结构
-                // 仅编译期错误才抛出
+                // 仅编译期错误才抛出；其他异常（如 DSL 用法错误）不影响已构建的 DAG 节点
+                // 注意：dry-run 下不应再出现"表不存在"类数据异常
                 if (isCompilationError(e)) {
                     throw e;
                 }

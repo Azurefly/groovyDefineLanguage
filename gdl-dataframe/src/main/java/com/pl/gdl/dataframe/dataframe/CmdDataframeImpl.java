@@ -490,6 +490,8 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     @Override
     public void writeCsv(String filePath, boolean withHeader, char delimiter) {
+        // dry-run（纯规划）模式：不落地文件，避免副作用
+        if (com.pl.gdl.dataframe.engine.DryRun.isActive()) return;
         RowDataFrame data = collect();
         try (java.io.BufferedWriter writer = java.nio.file.Files.newBufferedWriter(
                 java.nio.file.Paths.get(filePath), java.nio.charset.StandardCharsets.UTF_8)) {
@@ -513,6 +515,8 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     @Override
     public void writeJson(String filePath) {
+        // dry-run（纯规划）模式：不落地文件，避免副作用
+        if (com.pl.gdl.dataframe.engine.DryRun.isActive()) return;
         RowDataFrame data = collect();
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         try (java.io.BufferedWriter writer = java.nio.file.Files.newBufferedWriter(
