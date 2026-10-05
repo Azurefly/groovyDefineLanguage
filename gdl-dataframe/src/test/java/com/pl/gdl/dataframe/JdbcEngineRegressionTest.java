@@ -281,4 +281,20 @@ class JdbcEngineRegressionTest {
         RowDataFrame result = from("t_reg_emp").pivot("dept", "salary", "SUM", "dept").collect();
         assertThat(result.rowSize()).isEqualTo(2);
     }
+
+    @Test
+    void unionWorksOnSqlite() {
+        // SQLite 不接受 (SELECT...) UNION (SELECT...) 的分支括号，
+        // 方言渲染必须去括号，否则报 near "UNION": syntax error
+        RowDataFrame result = engine.execute(new QueryOperator(ds,
+                "SELECT 1 AS id UNION SELECT 2 AS id"));
+        // 注意：当前引擎是 H2，用 SQLite 方言直接验证 SQL 形态
+        String sqliteSql = new com.pl.gdl.dataframe.engine.SqlPushdownEngine(
+                new com.pl.gdl.dataframe.dialect.SqliteSqlDialect()).toSql(
+                new com.pl.gdl.dataframe.operator.set.UnionOperator(
+                        new QueryOperator(ds, "SELECT 1 AS id"),
+                        new QueryOperator(ds, "SELECT 2 AS id"), false));
+        assertThat(sqliteSql).isEqualTo("SELECT 1 AS id UNION SELECT 2 AS id");
+        assertThat(result.rowSize()).isEqualTo(2);
+    }
 }

@@ -33,6 +33,15 @@ public interface SqlDialect {
     }
 
     /**
+     * 渲染集合运算（UNION/EXCEPT/INTERSECT）。
+     * 默认给分支加括号（H2/MySQL/PostgreSQL/Hive 均接受）；
+     * SQLite 不接受括号化的复合分支，覆写为无括号形式。
+     */
+    default String formatSetOperation(String left, String keyword, String right) {
+        return "(" + left + ") " + keyword + " (" + right + ")";
+    }
+
+    /**
      * 生成"分组内按排序取首行"的 SQL（通常基于 ROW_NUMBER 窗口函数）。
      */
     String formatGroupSortFirst(String groupCols, String sortCols, String sourceTable);

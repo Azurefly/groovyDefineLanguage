@@ -175,8 +175,8 @@ public class SqlPushdownEngine implements ExecutionEngine {
         if (operator instanceof UnionOperator unionOp) {
             String left = toSqlUpstream(unionOp.getUpstream().get(0));
             String right = toSqlUpstream(unionOp.getUpstream().get(1));
-            String kw = unionOp.isAll() ? " UNION ALL " : " UNION ";
-            return "(" + left + ")" + kw + "(" + right + ")";
+            String kw = unionOp.isAll() ? "UNION ALL" : "UNION";
+            return getDialect().formatSetOperation(left, kw, right);
         }
 
         // SUBTRACT：(左) EXCEPT [ALL] (右)；Hive 不支持 EXCEPT ALL，直接失败而非生成非法 SQL
@@ -186,8 +186,8 @@ public class SqlPushdownEngine implements ExecutionEngine {
             }
             String left = toSqlUpstream(subOp.getUpstream().get(0));
             String right = toSqlUpstream(subOp.getUpstream().get(1));
-            String kw = subOp.isAll() ? " EXCEPT ALL " : " EXCEPT ";
-            return "(" + left + ")" + kw + "(" + right + ")";
+            String kw = subOp.isAll() ? "EXCEPT ALL" : "EXCEPT";
+            return getDialect().formatSetOperation(left, kw, right);
         }
 
         // INTERSECT：(左) INTERSECT [ALL] (右)；Hive 不支持 INTERSECT ALL，直接失败
@@ -197,8 +197,8 @@ public class SqlPushdownEngine implements ExecutionEngine {
             }
             String left = toSqlUpstream(intersectOp.getUpstream().get(0));
             String right = toSqlUpstream(intersectOp.getUpstream().get(1));
-            String kw = intersectOp.isAll() ? " INTERSECT ALL " : " INTERSECT ";
-            return "(" + left + ")" + kw + "(" + right + ")";
+            String kw = intersectOp.isAll() ? "INTERSECT ALL" : "INTERSECT";
+            return getDialect().formatSetOperation(left, kw, right);
         }
 
         // JOIN：SELECT * FROM (左) left_tbl 连接类型 (右) right_tbl ON 条件
