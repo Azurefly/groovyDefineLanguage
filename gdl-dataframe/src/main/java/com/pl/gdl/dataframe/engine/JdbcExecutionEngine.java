@@ -63,6 +63,10 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
                 if (operator instanceof DescribeOperator describeOp) {
                     return executeDescribePushdown(describeOp);
                 }
+                // 终端 pivot：两次查询下推（DISTINCT 取透视值 + CASE WHEN 聚合），O(1) 内存
+                if (operator instanceof PivotOperator pivotOp) {
+                    return executePivotPushdown(pivotOp);
+                }
                 // 终端也可能是非 SQL 算子（如 validate 链尾），统一走拦截入口
                 String sql = isNonSqlRoot(operator) ? toSqlUpstream(operator) : toSql(operator);
                 if (sql == null || sql.isBlank()) return new RowDataFrame();
@@ -140,8 +144,9 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
             return "SELECT * FROM " + materializeTempTable(executeDescribePushdown(describeOp));
         }
         if (upstream instanceof PivotOperator pivotOp) {
-            RowDataFrame input = executeUpstreamOrEmpty(pivotOp);
-            return "SELECT * FROM " + materializeTempTable(new InMemoryEngine().pivotData(input, pivotOp));
+            // 大数据友好：pivot 下推为两次查询（小结果），物化为临时表后上层继续纯 SQL，
+            // 不再全量拉取上游数据（此前 O(全表) 内存）
+            return "SELECT * FROM " + materializeTempTable(executePivotPushdown(pivotOp));
         }
         if (isSeededSampleUnsupported(upstream)) {
             SampleOperator sampleOp = (SampleOperator) upstream;
@@ -238,6 +243,103 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
         return output;
     }
 
+    /**
+     * pivot 下推执行：两次查询，O(1) 内存。
+     * <ol>
+     *   <li>{@code SELECT DISTINCT pivotCol ...} 取透视值（小结果）；</li>
+     *   <li>{@code SELECT groupCols, AGG(CASE WHEN pivotCol='v' THEN valueCol END) AS "v", ...}
+     *       单遍扫描聚合。</li>
+     * </ol>
+     * 别名规则与 InMemoryEngine.pivotData 一致：原值加双引号、内嵌引号转义、
+     * 冲突追加序号；结果列名统一转小写。
+     */
+    private RowDataFrame executePivotPushdown(
+            com.pl.gdl.dataframe.operator.base.PivotOperator pivotOp) {
+        if (pivotOp.getUpstream().isEmpty()) return new RowDataFrame();
+        String upstreamSql = toSqlUpstream(pivotOp.getUpstream().get(0));
+        if (upstreamSql == null || upstreamSql.isBlank()) return new RowDataFrame();
+        Connection conn = activeConnection.get();
+        if (conn == null) {
+            throw new UnsupportedOperationException(
+                    "pivot 下推需要 JDBC 连接（纯 SQL 生成模式不支持）");
+        }
+        String sourceSql = "SELECT * FROM (" + upstreamSql + ") sub_pivot_src";
+        String pivotCol = simpleColRef(pivotOp.getPivotColumn());
+        String valueCol = simpleColRef(pivotOp.getValueColumn());
+        List<String> groupCols = pivotOp.getGroupByColumns();
+        List<String> groupRefs = new ArrayList<>();
+        for (String g : groupCols) groupRefs.add(simpleColRef(g));
+        try {
+            // 1. 透视值（去 NULL、确定性排序）
+            List<String> pivotValues = new ArrayList<>();
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(
+                         "SELECT DISTINCT " + pivotCol + " FROM (" + sourceSql + ") sub_pv" +
+                         " WHERE " + pivotCol + " IS NOT NULL ORDER BY 1")) {
+                while (rs.next()) pivotValues.add(rs.getString(1));
+            }
+            // 无透视值：返回仅分组列的空结果（旧内存版此处会生成非法 SQL）
+            List<ColumnInfo> outCols = new ArrayList<>();
+            for (String g : groupCols) outCols.add(new ColumnInfo(g.toLowerCase(java.util.Locale.ROOT), "STRING"));
+            if (pivotValues.isEmpty()) return new RowDataFrame(outCols);
+            // 2. 构建透视聚合 SQL
+            StringBuilder sql = new StringBuilder("SELECT ");
+            if (!groupRefs.isEmpty()) sql.append(String.join(", ", groupRefs)).append(", ");
+            java.util.Set<String> usedAliases = new java.util.HashSet<>();
+            for (int i = 0; i < pivotValues.size(); i++) {
+                if (i > 0) sql.append(", ");
+                String pv = pivotValues.get(i).replace("'", "''");
+                String quoted = pivotValues.get(i).replace("\"", "\"\"");
+                String alias = quoted;
+                int suffix = 2;
+                while (!usedAliases.add(alias)) alias = quoted + "_" + (suffix++);
+                sql.append(pivotOp.getAggFunction())
+                   .append("(CASE WHEN ").append(pivotCol)
+                   .append(" = '").append(pv).append("' THEN ")
+                   .append(valueCol).append(" END) AS \"").append(alias).append("\"");
+            }
+            sql.append(" FROM (").append(sourceSql).append(") sub_pivot");
+            if (!groupRefs.isEmpty()) sql.append(" GROUP BY ").append(String.join(", ", groupRefs));
+            // 3. 执行并组装（列名转小写，与 JDBC 引擎统一）
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(sql.toString())) {
+                ResultSetMetaData md = rs.getMetaData();
+                List<ColumnInfo> columns = new ArrayList<>();
+                for (int i = 1; i <= md.getColumnCount(); i++) {
+                    String typeName;
+                    try {
+                        typeName = md.getColumnTypeName(i);
+                    } catch (SQLException ignored) {
+                        typeName = "UNKNOWN";
+                    }
+                    columns.add(new ColumnInfo(normLabel(md, i), typeName));
+                }
+                RowDataFrame result = new RowDataFrame(columns);
+                while (rs.next()) {
+                    Row row = new Row();
+                    for (int i = 1; i <= md.getColumnCount(); i++) {
+                        row.setValue(normLabel(md, i), rs.getObject(i));
+                    }
+                    result.addRow(row);
+                }
+                return result;
+            }
+        } catch (SQLException e) {
+            throw new GdlExecutionException(
+                    "pivot 下推执行失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 列引用：简单小写标识符不加引号（H2 会把未加引号的标识符折叠为大写，
+     * 与源表未加引号建表时的行为一致；加引号反而因大小写敏感找不到列），
+     * 其余走方言引号。
+     */
+    private String simpleColRef(String col) {
+        if (col != null && col.matches("[a-z_][a-z0-9_]*")) return col;
+        return getDialect().quoteIdentifier(col);
+    }
+
     /** 零数据查询，仅取列元数据。 */
     private List<ColumnInfo> queryColumns(Connection conn, String sql) throws SQLException {
         try (Statement stmt = conn.createStatement();
@@ -264,12 +366,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
         List<Boolean> numeric = new ArrayList<>(batch.size());
         for (int i = 0; i < batch.size(); i++) {
             ColumnInfo col = batch.get(i);
-            // 简单小写标识符不加引号：H2 会把未加引号的标识符折叠为大写，
-            // 与源表未加引号建表时的行为一致；加引号反而因大小写敏感找不到列
-            String q = col.getColumnName();
-            if (!q.matches("[a-z_][a-z0-9_]*")) {
-                q = getDialect().quoteIdentifier(q);
-            }
+            String q = simpleColRef(col.getColumnName());
             boolean isNumeric = col.getDataTypeName() != null
                     && NUMERIC_TYPES.contains(col.getDataTypeName().toUpperCase(java.util.Locale.ROOT));
             numeric.add(isNumeric);

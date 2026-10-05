@@ -262,4 +262,23 @@ class JdbcEngineRegressionTest {
         assertThat((Object) dept.getValue("distinct_count")).isEqualTo(2L);
         assertThat((Object) dept.getValue("avg_value")).isNull();
     }
+
+    @Test
+    void pivotPushdownOnJdbc() {
+        // pivot 下推：DISTINCT 取透视值 + CASE WHEN 聚合，两次查询、O(1) 内存
+        // t_reg_emp: (1,alice,电子,8000), (2,bob,电子,9000), (3,carol,服装,7000)
+        // 无分组列：1 行，电子=17000.0，服装=7000.0
+        RowDataFrame result = from("t_reg_emp").pivot("dept", "salary", "SUM").collect();
+        assertThat(result.rowSize()).isEqualTo(1);
+        com.pl.gdl.common.model.Row row = result.getRow(0);
+        assertThat(((Number) row.getValue("\u7535\u5b50")).doubleValue()).isEqualTo(17000.0);
+        assertThat(((Number) row.getValue("\u670d\u88c5")).doubleValue()).isEqualTo(7000.0);
+    }
+
+    @Test
+    void pivotPushdownWithGroupByOnJdbc() {
+        // 带分组列的 pivot 下推：按 dept 分组，每组一行
+        RowDataFrame result = from("t_reg_emp").pivot("dept", "salary", "SUM", "dept").collect();
+        assertThat(result.rowSize()).isEqualTo(2);
+    }
 }
