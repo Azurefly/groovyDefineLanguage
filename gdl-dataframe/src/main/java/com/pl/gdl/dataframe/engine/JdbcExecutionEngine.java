@@ -48,21 +48,108 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
     private final ThreadLocal<List<String>> activeTempTables =
             ThreadLocal.withInitial(ArrayList::new);
 
+    /** 事务中的连接（当前线程）。非空表示正在事务中，写操作复用该连接不关闭。 */
+    private final ThreadLocal<java.sql.Connection> transactionConnection = new ThreadLocal<>();
+
+    public boolean inTransaction() {
+        return transactionConnection.get() != null;
+    }
+
+    /** 开启事务（当前线程）。已在事务中则直接返回（嵌套事务合并为外层）。 */
+    public void beginTransaction() {
+        if (inTransaction()) return;
+        try {
+            java.sql.Connection conn = connectionManager.getConnection(datasource);
+            conn.setAutoCommit(false);
+            transactionConnection.set(conn);
+        } catch (java.sql.SQLException e) {
+            throw new GdlExecutionException("JDBC begin transaction failed: " + e.getMessage(), e);
+        }
+    }
+
+    public void commitTransaction() {
+        java.sql.Connection conn = transactionConnection.get();
+        if (conn == null) return;
+        try {
+            conn.commit();
+        } catch (java.sql.SQLException e) {
+            throw new GdlExecutionException("JDBC commit failed: " + e.getMessage(), e);
+        } finally {
+            closeTransactionConnection(conn);
+        }
+    }
+
+    public void rollbackTransaction() {
+        java.sql.Connection conn = transactionConnection.get();
+        if (conn == null) return;
+        try {
+            conn.rollback();
+        } catch (java.sql.SQLException e) {
+            throw new GdlExecutionException("JDBC rollback failed: " + e.getMessage(), e);
+        } finally {
+            closeTransactionConnection(conn);
+        }
+    }
+
+    private void closeTransactionConnection(java.sql.Connection conn) {
+        transactionConnection.remove();
+        try {
+            conn.setAutoCommit(true);
+            conn.close();
+        } catch (java.sql.SQLException ignored) {
+        }
+    }
+
+    private java.sql.Connection writeConnection() throws java.sql.SQLException {
+        java.sql.Connection txConn = transactionConnection.get();
+        return txConn != null ? txConn : connectionManager.getConnection(datasource);
+    }
+
     /**
      * 执行写 SQL（INSERT/UPDATE/DELETE），返回影响行数。
+     * 事务中则复用事务连接（不关闭）；非事务则每次取新连接。
      * 供本体 save/update/delete 等写回场景使用。
      */
     public int executeUpdate(String sql, java.util.List<Object> params) {
-        try (java.sql.Connection conn = connectionManager.getConnection(datasource);
-             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
-            if (params != null) {
-                for (int i = 0; i < params.size(); i++) {
-                    ps.setObject(i + 1, params.get(i));
+        boolean inTx = inTransaction();
+        try {
+            java.sql.Connection conn = writeConnection();
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                if (params != null) {
+                    for (int i = 0; i < params.size(); i++) {
+                        ps.setObject(i + 1, params.get(i));
+                    }
                 }
+                return ps.executeUpdate();
+            } finally {
+                if (!inTx) conn.close();
             }
-            return ps.executeUpdate();
         } catch (java.sql.SQLException e) {
             throw new GdlExecutionException("JDBC write failed: " + e.getMessage() + " | SQL: " + sql, e);
+        }
+    }
+
+    /**
+     * 批量执行写 SQL，返回每条的影响行数数组。
+     * 供本体 saveBatch 使用。
+     */
+    public int[] executeBatch(String sql, java.util.List<java.util.List<Object>> batchParams) {
+        boolean inTx = inTransaction();
+        try {
+            java.sql.Connection conn = writeConnection();
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (java.util.List<Object> params : batchParams) {
+                    for (int i = 0; i < params.size(); i++) {
+                        ps.setObject(i + 1, params.get(i));
+                    }
+                    ps.addBatch();
+                }
+                return ps.executeBatch();
+            } finally {
+                if (!inTx) conn.close();
+            }
+        } catch (java.sql.SQLException e) {
+            throw new GdlExecutionException("JDBC batch write failed: " + e.getMessage() + " | SQL: " + sql, e);
         }
     }
 

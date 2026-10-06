@@ -240,6 +240,61 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         return this;
     }
 
+    /**
+     * 在事务中执行业务逻辑。闭包正常返回则提交，抛异常则回滚。
+     * 嵌套调用时合并到外层事务（不开启新事务）。
+     * Groovy 脚本中可直接传闭包：{@code po.transaction { po.save(h); lines.each { li.save(it) } }}
+     */
+    public <T> T transaction(java.util.function.Supplier<T> work) {
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        boolean outer = engine.inTransaction();
+        if (!outer) engine.beginTransaction();
+        try {
+            T result = work.get();
+            if (!outer) engine.commitTransaction();
+            return result;
+        } catch (RuntimeException e) {
+            if (!outer) engine.rollbackTransaction();
+            throw e;
+        } catch (Exception e) {
+            if (!outer) engine.rollbackTransaction();
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** 无返回值的事务便捷版 */
+    public void transaction(Runnable work) {
+        transaction(() -> {
+            work.run();
+            return null;
+        });
+    }
+
+    /**
+     * 批量插入。record 的 key 支持本体属性名（自动映射物理列）。
+     * 返回每条的影响行数数组。
+     */
+    public int[] saveBatch(java.util.List<Map<String, Object>> records) {
+        if (records == null || records.isEmpty()) return new int[0];
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        Map<String, String> attrMap = attributeColumnMap();
+        List<String> columns = new ArrayList<>();
+        List<java.util.List<Object>> batchParams = new ArrayList<>();
+        boolean first = true;
+        for (Map<String, Object> record : records) {
+            List<Object> values = new ArrayList<>();
+            for (Map.Entry<String, Object> e : record.entrySet()) {
+                if (first) columns.add(attrMap.getOrDefault(e.getKey(), e.getKey()));
+                values.add(e.getValue());
+            }
+            first = false;
+            batchParams.add(values);
+        }
+        String sql = "INSERT INTO " + oTable + " (" + String.join(", ", columns) + ") VALUES (" +
+                String.join(", ", Collections.nCopies(columns.size(), "?")) + ")";
+        return engine.executeBatch(sql, batchParams);
+    }
+
     public Ontology update(String expr, Map<String, Object> record) {
         if (record == null || record.isEmpty()) throw new IllegalArgumentException("update record 不能为空");
         com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
