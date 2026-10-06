@@ -192,22 +192,69 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         return this;
     }
 
-    // Storage mutations
-    // 注意：以下写操作方法当前尚未实现。此前为静默 no-op（仅做空表检查后返回），调用方会误以为写入成功。
-    // 现改为明确抛 UnsupportedOperationException，避免静默的数据丢失假象。
+    // Storage mutations：基于 JDBC 直接写物理表，record 的 key 支持本体属性名（自动映射物理列）
+    private com.pl.gdl.dataframe.engine.JdbcExecutionEngine writeEngine() {
+        if (oTable == null) throw new RuntimeException("Ontology has no physical table");
+        com.pl.gdl.dataframe.engine.ExecutionEngine engine = null;
+        try {
+            engine = com.pl.gdl.runtime.script.GdlExecutionContext.get().getExecutionEngine();
+        } catch (Exception ignored) {
+        }
+        if (engine instanceof com.pl.gdl.dataframe.engine.JdbcExecutionEngine jdbc) {
+            return jdbc;
+        }
+        // 上下文非 JDBC（如 GDL 脚本默认 InMemoryEngine）时，尝试按本体数据源创建
+        if (oDs instanceof com.pl.gdl.dataframe.datasource.JdbcDatasource) {
+            com.pl.gdl.dataframe.engine.ExecutionEngine created =
+                    com.pl.gdl.dataframe.datasource.DatasourceRegistry.getDefault().createExecutionEngine(oDs);
+            if (created instanceof com.pl.gdl.dataframe.engine.JdbcExecutionEngine jdbc2) {
+                return jdbc2;
+            }
+        }
+        throw new UnsupportedOperationException(
+                "Ontology 写操作需要 JDBC 数据源，当前数据源类型不支持: " +
+                        (oDs == null ? "null" : oDs.getClass().getSimpleName()));
+    }
+
     public Ontology save(Map<String, Object> record) {
-        if (oTable == null) throw new RuntimeException("Ontology has no physical table, cannot save");
-        throw new UnsupportedOperationException("Ontology.save 尚未实现：本体写回需要存储引擎对接");
+        if (record == null || record.isEmpty()) throw new IllegalArgumentException("save record 不能为空");
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        Map<String, String> attrMap = attributeColumnMap();
+        List<String> columns = new ArrayList<>();
+        List<Object> values = new ArrayList<>();
+        for (Map.Entry<String, Object> e : record.entrySet()) {
+            columns.add(attrMap.getOrDefault(e.getKey(), e.getKey()));
+            values.add(e.getValue());
+        }
+        String sql = "INSERT INTO " + oTable + " (" + String.join(", ", columns) + ") VALUES (" +
+                String.join(", ", Collections.nCopies(columns.size(), "?")) + ")";
+        engine.executeUpdate(sql, values);
+        return this;
     }
 
     public Ontology delete(String expr) {
-        if (oTable == null) throw new RuntimeException("Ontology has no physical table, cannot delete");
-        throw new UnsupportedOperationException("Ontology.delete 尚未实现");
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        String where = mapAttributes(expr);
+        String sql = "DELETE FROM " + oTable + (where == null || where.isBlank() ? "" : " WHERE " + where);
+        engine.executeUpdate(sql, Collections.emptyList());
+        return this;
     }
 
     public Ontology update(String expr, Map<String, Object> record) {
-        if (oTable == null) throw new RuntimeException("Ontology has no physical table, cannot update");
-        throw new UnsupportedOperationException("Ontology.update 尚未实现");
+        if (record == null || record.isEmpty()) throw new IllegalArgumentException("update record 不能为空");
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        Map<String, String> attrMap = attributeColumnMap();
+        List<String> sets = new ArrayList<>();
+        List<Object> values = new ArrayList<>();
+        for (Map.Entry<String, Object> e : record.entrySet()) {
+            sets.add(attrMap.getOrDefault(e.getKey(), e.getKey()) + " = ?");
+            values.add(e.getValue());
+        }
+        String where = mapAttributes(expr);
+        String sql = "UPDATE " + oTable + " SET " + String.join(", ", sets) +
+                (where == null || where.isBlank() ? "" : " WHERE " + where);
+        engine.executeUpdate(sql, values);
+        return this;
     }
 
     public void addColumns(String fields) {

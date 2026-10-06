@@ -48,6 +48,24 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
     private final ThreadLocal<List<String>> activeTempTables =
             ThreadLocal.withInitial(ArrayList::new);
 
+    /**
+     * 执行写 SQL（INSERT/UPDATE/DELETE），返回影响行数。
+     * 供本体 save/update/delete 等写回场景使用。
+     */
+    public int executeUpdate(String sql, java.util.List<Object> params) {
+        try (java.sql.Connection conn = connectionManager.getConnection(datasource);
+             java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (params != null) {
+                for (int i = 0; i < params.size(); i++) {
+                    ps.setObject(i + 1, params.get(i));
+                }
+            }
+            return ps.executeUpdate();
+        } catch (java.sql.SQLException e) {
+            throw new GdlExecutionException("JDBC write failed: " + e.getMessage() + " | SQL: " + sql, e);
+        }
+    }
+
     @Override
     public RowDataFrame execute(LogicalOperator operator) {
         // dry-run（纯规划）模式：不触碰数据源，直接返回空结果，杜绝任何副作用
