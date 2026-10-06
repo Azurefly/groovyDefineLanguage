@@ -201,17 +201,34 @@ public class SqlPushdownEngine implements ExecutionEngine {
             return getDialect().formatSetOperation(left, kw, right);
         }
 
-        // JOIN：SELECT * FROM (左) left_tbl 连接类型 (右) right_tbl ON 条件
+        // JOIN：上游带 alias() 时用其别名作为连接表别名（ON 条件引用 a./b. 时可见），
+        // 否则用 left_tbl/right_tbl；避免别名被埋进子查询导致 Column not found
         if (operator instanceof JoinOperator joinOp) {
-            String left = toSqlUpstream(joinOp.getUpstream().get(0));
-            String right = toSqlUpstream(joinOp.getUpstream().get(1));
+            LogicalOperator leftOp = joinOp.getUpstream().get(0);
+            LogicalOperator rightOp = joinOp.getUpstream().get(1);
+            String leftSql = toSqlUpstream(leftOp);
+            String rightSql = toSqlUpstream(rightOp);
+            String leftAlias = "left_tbl";
+            String rightAlias = "right_tbl";
+            if (leftOp instanceof com.pl.gdl.dataframe.operator.base.AliasOperator leftAliasOp
+                    && leftAliasOp.getAliasName() != null && !leftAliasOp.getAliasName().isBlank()) {
+                // 去掉内层多余的 AS 别名（外层直接用该别名），避免 (SELECT ... AS a) a 嵌套
+                leftSql = toSqlUpstream(leftAliasOp.getUpstream().get(0));
+                leftAlias = leftAliasOp.getAliasName();
+            }
+            if (rightOp instanceof com.pl.gdl.dataframe.operator.base.AliasOperator rightAliasOp
+                    && rightAliasOp.getAliasName() != null && !rightAliasOp.getAliasName().isBlank()) {
+                rightSql = toSqlUpstream(rightAliasOp.getUpstream().get(0));
+                rightAlias = rightAliasOp.getAliasName();
+            }
             String type = switch (joinOp.getJoinType()) {
                 case LEFT -> "LEFT JOIN";
                 case RIGHT -> "RIGHT JOIN";
                 case FULL -> "FULL OUTER JOIN";
                 default -> "JOIN";
             };
-            return "SELECT * FROM (" + left + ") left_tbl " + type + " (" + right + ") right_tbl ON " + joinOp.getOnCondition();
+            return "SELECT * FROM (" + leftSql + ") " + leftAlias + " " + type
+                    + " (" + rightSql + ") " + rightAlias + " ON " + joinOp.getOnCondition();
         }
 
         // EXISTS：SELECT * FROM (左) a WHERE [NOT] EXISTS (SELECT 1 FROM (右) b WHERE 条件)

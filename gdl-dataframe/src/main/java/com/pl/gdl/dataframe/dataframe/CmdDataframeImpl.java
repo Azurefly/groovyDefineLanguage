@@ -75,7 +75,8 @@ public class CmdDataframeImpl implements CmdDataframe {
 
     @Override
     public CmdDataframe alias(String alias) {
-        operator.setAlias(alias);
+        // 仅包装 AliasOperator，不再同步 mutation 底层算子：此前双重应用会导致
+        // (SELECT * FROM t AS a) a 这类别名嵌套，H2 解析外层 a.tool_code 时混乱
         return new CmdDataframeImpl(new AliasOperator(operator, alias), executionEngine);
     }
 

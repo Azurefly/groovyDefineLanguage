@@ -2,6 +2,7 @@ package com.pl.gdl.ontology.model;
 
 import com.pl.gdl.common.exception.OntologyValidationException;
 import com.pl.gdl.dataframe.dataframe.CmdDataframe;
+import com.pl.gdl.ontology.annotation.Column;
 import com.pl.gdl.dataframe.dataframe.CmdDataframeImpl;
 import com.pl.gdl.dataframe.datasource.CmdDatasource;
 import com.pl.gdl.dataframe.operator.base.FromOperator;
@@ -110,15 +111,19 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     public Ontology where(String condition) {
         initQuery();
         if (queryDataframe != null) {
-            queryDataframe = queryDataframe.where(condition);
+            queryDataframe = queryDataframe.where(mapAttributes(condition));
         }
         return this;
     }
 
     public Ontology select(String... expressions) {
         initQuery();
-        if (queryDataframe != null) {
-            queryDataframe = queryDataframe.select(expressions);
+        if (queryDataframe != null && expressions != null) {
+            String[] mapped = new String[expressions.length];
+            for (int i = 0; i < expressions.length; i++) {
+                mapped[i] = mapAttributes(expressions[i]);
+            }
+            queryDataframe = queryDataframe.select(mapped);
         }
         return this;
     }
@@ -133,8 +138,12 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
 
     public Ontology sort(String... sortExprs) {
         initQuery();
-        if (queryDataframe != null) {
-            queryDataframe = queryDataframe.sort(sortExprs);
+        if (queryDataframe != null && sortExprs != null) {
+            String[] mapped = new String[sortExprs.length];
+            for (int i = 0; i < sortExprs.length; i++) {
+                mapped[i] = mapAttributes(sortExprs[i]);
+            }
+            queryDataframe = queryDataframe.sort(mapped);
         }
         return this;
     }
@@ -209,6 +218,79 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     public void dropTable() {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table");
         throw new UnsupportedOperationException("Ontology.dropTable 尚未实现");
+    }
+
+    /**
+     * 属性名 -&gt; 物理列名映射（基于 @Column 注解字段的字段值）。
+     * 例如 {@code toolCode -&gt; tool_code}。
+     */
+    protected Map<String, String> attributeColumnMap() {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (Field f : getClass().getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+            Column col = f.getAnnotation(Column.class);
+            if (col == null) continue;
+            try {
+                f.setAccessible(true);
+                Object v = f.get(this);
+                if (v instanceof String physical && !physical.isBlank()) {
+                    map.put(f.getName(), physical);
+                }
+            } catch (IllegalAccessException ignored) {
+            }
+        }
+        return map;
+    }
+
+    /**
+     * 将表达式中的本体属性名替换为物理列名。
+     * 单引号字符串字面量内的内容原样保留（支持 '' 转义）；
+     * 按属性名长度降序替换，避免前缀误伤；已是物理列名的保持不变。
+     */
+    protected String mapAttributes(String expr) {
+        Map<String, String> attrMap = attributeColumnMap();
+        if (expr == null || attrMap.isEmpty()) return expr;
+        List<String> attrs = new ArrayList<>(attrMap.keySet());
+        attrs.sort((a, b) -> Integer.compare(b.length(), a.length()));
+        StringBuilder out = new StringBuilder();
+        StringBuilder seg = new StringBuilder();
+        boolean inQuote = false;
+        for (int i = 0; i < expr.length(); i++) {
+            char c = expr.charAt(i);
+            if (c == '\'') {
+                if (inQuote && i + 1 < expr.length() && expr.charAt(i + 1) == '\'') {
+                    seg.append("''");
+                    i++;
+                    continue;
+                }
+                if (inQuote) {
+                    out.append('\'').append(seg).append('\'');
+                } else {
+                    out.append(replaceAttributes(seg.toString(), attrs, attrMap));
+                }
+                seg.setLength(0);
+                inQuote = !inQuote;
+            } else {
+                seg.append(c);
+            }
+        }
+        if (inQuote) {
+            out.append('\'').append(seg);
+        } else {
+            out.append(replaceAttributes(seg.toString(), attrs, attrMap));
+        }
+        return out.toString();
+    }
+
+    private String replaceAttributes(String seg, List<String> attrs, Map<String, String> attrMap) {
+        String r = seg;
+        for (String attr : attrs) {
+            String physical = attrMap.get(attr);
+            if (physical.equals(attr)) continue;
+            r = r.replaceAll("\\b" + java.util.regex.Pattern.quote(attr) + "\\b",
+                    java.util.regex.Matcher.quoteReplacement(physical));
+        }
+        return r;
     }
 
     // Helper method
