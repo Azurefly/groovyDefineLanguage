@@ -18,6 +18,10 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     public String oName;
     public String oDesc;
     public String oTable;
+    /** 累计的 where 条件（已映射为物理列名），供 count() 复用 */
+    private final List<String> whereConditions = new ArrayList<>();
+    /** 表列名缓存（小写），用于审计字段/乐观锁的列存在性判断 */
+    private volatile java.util.Set<String> tableColumnsCache = null;
     public String oAuthor;
     public CmdDatasource oDs;
     public CmdDataframe oDataframe;
@@ -110,10 +114,99 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
 
     public Ontology where(String condition) {
         initQuery();
+        String mapped = mapAttributes(condition);
         if (queryDataframe != null) {
-            queryDataframe = queryDataframe.where(mapAttributes(condition));
+            queryDataframe = queryDataframe.where(mapped);
+        }
+        if (mapped != null && !mapped.isBlank()) {
+            whereConditions.add(mapped);
         }
         return this;
+    }
+
+    /**
+     * 按当前 where 条件统计总数。用于分页 UI 的"共 N 条"。
+     * 例：{@code long total = tool.where("category='铣刀'").count();}
+     */
+    public long count() {
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        String where = String.join(" AND ", whereConditions);
+        String sql = "SELECT COUNT(*) FROM " + oTable + (where.isEmpty() ? "" : " WHERE " + where);
+        final long[] result = new long[1];
+        // 复用 executeUpdate 的连接逻辑，执行查询
+        try {
+            java.sql.Connection conn = engine.getDatasource() != null
+                    ? com.pl.gdl.dataframe.engine.JdbcConnectionManager.getDefault()
+                            .getConnection((com.pl.gdl.dataframe.datasource.JdbcDatasource) oDs)
+                    : null;
+            try (java.sql.Statement st = conn.createStatement();
+                 java.sql.ResultSet rs = st.executeQuery(sql)) {
+                if (rs.next()) result[0] = rs.getLong(1);
+            } finally {
+                if (conn != null) conn.close();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("count failed: " + e.getMessage() + " | SQL: " + sql, e);
+        }
+        return result[0];
+    }
+
+    /** 获取物理表列名集合（小写缓存） */
+    private java.util.Set<String> tableColumns() {
+        if (tableColumnsCache != null) return tableColumnsCache;
+        java.util.Set<String> cols = new java.util.HashSet<>();
+        try {
+            java.sql.Connection conn = com.pl.gdl.dataframe.engine.JdbcConnectionManager.getDefault()
+                    .getConnection((com.pl.gdl.dataframe.datasource.JdbcDatasource) oDs);
+            try {
+                java.sql.DatabaseMetaData meta = conn.getMetaData();
+                // H2 等库 unquoted 标识符存大写，两种 case 都试
+                for (String tn : new String[]{oTable, oTable.toUpperCase(), oTable.toLowerCase()}) {
+                    try (java.sql.ResultSet rs = meta.getColumns(conn.getCatalog(), null, tn, "%")) {
+                        while (rs.next()) {
+                            cols.add(rs.getString("COLUMN_NAME").toLowerCase());
+                        }
+                    }
+                    if (!cols.isEmpty()) break;
+                }
+            } finally {
+                conn.close();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("get table columns failed: " + e.getMessage(), e);
+        }
+        tableColumnsCache = cols;
+        return cols;
+    }
+
+    /** 审计字段自动填充（若表有这些列且 record 未提供） */
+    private void fillAuditFields(Map<String, Object> record, boolean isInsert) {
+        java.util.Set<String> cols = tableColumns();
+        Map<String, String> attrMap = attributeColumnMap();
+        // 反向映射：物理列 -> 属性名（用于检查 record 是否已提供）
+        java.util.Set<String> recordKeysLower = new java.util.HashSet<>();
+        for (String k : record.keySet()) {
+            recordKeysLower.add(k.toLowerCase());
+            String phys = attrMap.get(k);
+            if (phys != null) recordKeysLower.add(phys.toLowerCase());
+        }
+        long now = System.currentTimeMillis();
+        String operator = oAuthor != null ? oAuthor : "system";
+        // 列名约定：created_by/created_time/updated_by/updated_time（大小写不敏感）
+        if (isInsert) {
+            if (cols.contains("created_by") && !recordKeysLower.contains("created_by")) {
+                record.put("created_by", operator);
+            }
+            if (cols.contains("created_time") && !recordKeysLower.contains("created_time")) {
+                record.put("created_time", new java.sql.Timestamp(now));
+            }
+        }
+        if (cols.contains("updated_by") && !recordKeysLower.contains("updated_by")) {
+            record.put("updated_by", operator);
+        }
+        if (cols.contains("updated_time") && !recordKeysLower.contains("updated_time")) {
+            record.put("updated_time", new java.sql.Timestamp(now));
+        }
     }
 
     public Ontology select(String... expressions) {
@@ -219,6 +312,7 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     public Ontology save(Map<String, Object> record) {
         if (record == null || record.isEmpty()) throw new IllegalArgumentException("save record 不能为空");
         com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        fillAuditFields(record, true);
         Map<String, String> attrMap = attributeColumnMap();
         List<String> columns = new ArrayList<>();
         List<Object> values = new ArrayList<>();
@@ -277,6 +371,7 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     public int[] saveBatch(java.util.List<Map<String, Object>> records) {
         if (records == null || records.isEmpty()) return new int[0];
         com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        for (Map<String, Object> r : records) fillAuditFields(r, true);
         Map<String, String> attrMap = attributeColumnMap();
         List<String> columns = new ArrayList<>();
         List<java.util.List<Object>> batchParams = new ArrayList<>();
@@ -298,17 +393,48 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     public Ontology update(String expr, Map<String, Object> record) {
         if (record == null || record.isEmpty()) throw new IllegalArgumentException("update record 不能为空");
         com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        fillAuditFields(record, false);
         Map<String, String> attrMap = attributeColumnMap();
         List<String> sets = new ArrayList<>();
         List<Object> values = new ArrayList<>();
+        // 乐观锁：若 record 含 version（属性名或物理列名），则 SET version=version+1 并用旧版本做 WHERE
+        Object oldVersion = null;
+        String versionCol = null;
         for (Map.Entry<String, Object> e : record.entrySet()) {
-            sets.add(attrMap.getOrDefault(e.getKey(), e.getKey()) + " = ?");
+            String phys = attrMap.getOrDefault(e.getKey(), e.getKey());
+            if (phys.equalsIgnoreCase("version")) {
+                oldVersion = e.getValue();
+                versionCol = phys;
+                continue;
+            }
+            sets.add(phys + " = ?");
             values.add(e.getValue());
         }
+        if (versionCol != null) {
+            sets.add(versionCol + " = " + versionCol + " + 1");
+        }
         String where = mapAttributes(expr);
-        String sql = "UPDATE " + oTable + " SET " + String.join(", ", sets) +
-                (where == null || where.isBlank() ? "" : " WHERE " + where);
-        engine.executeUpdate(sql, values);
+        StringBuilder sql = new StringBuilder("UPDATE " + oTable + " SET " + String.join(", ", sets));
+        List<Object> whereValues = new ArrayList<>();
+        if ((where != null && !where.isBlank()) || versionCol != null) {
+            sql.append(" WHERE ");
+            boolean needAnd = false;
+            if (where != null && !where.isBlank()) {
+                sql.append(where);
+                needAnd = true;
+            }
+            if (versionCol != null) {
+                if (needAnd) sql.append(" AND ");
+                sql.append(versionCol).append(" = ?");
+                whereValues.add(oldVersion);
+            }
+        }
+        values.addAll(whereValues);
+        int affected = engine.executeUpdate(sql.toString(), values);
+        if (versionCol != null && affected == 0) {
+            throw new com.pl.gdl.common.exception.OptimisticLockException(
+                    "乐观锁冲突：" + oTable + " 数据已被其他事务修改（version 不匹配）");
+        }
         return this;
     }
 
