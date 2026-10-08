@@ -525,6 +525,21 @@ public class InMemoryEngine implements ExecutionEngine {
             return pivotData(input, pivotOp);
         }
 
+        if (operator instanceof com.pl.gdl.dataframe.operator.realtime.TumbleWindowOperator tumbleOp) {
+            RowDataFrame input = !tumbleOp.getUpstream().isEmpty() ? execute(tumbleOp.getUpstream().get(0)) : new RowDataFrame();
+            return applyTumbleWindow(input, tumbleOp);
+        }
+
+        if (operator instanceof com.pl.gdl.dataframe.operator.realtime.HopWindowOperator hopOp) {
+            RowDataFrame input = !hopOp.getUpstream().isEmpty() ? execute(hopOp.getUpstream().get(0)) : new RowDataFrame();
+            return applyHopWindow(input, hopOp);
+        }
+
+        if (operator instanceof com.pl.gdl.dataframe.operator.realtime.CumulateWindowOperator cumOp) {
+            RowDataFrame input = !cumOp.getUpstream().isEmpty() ? execute(cumOp.getUpstream().get(0)) : new RowDataFrame();
+            return applyCumulateWindow(input, cumOp);
+        }
+
         if (operator instanceof com.pl.gdl.dataframe.operator.advanced.HttpOperator httpOp) {
             RowDataFrame input = !httpOp.getUpstream().isEmpty() ? execute(httpOp.getUpstream().get(0)) : new RowDataFrame();
             return new com.pl.gdl.dataframe.http.HttpCallExecutor().execute(httpOp, input);
@@ -536,6 +551,9 @@ public class InMemoryEngine implements ExecutionEngine {
                 return inMemoryTables.get(tbl);
             }
         }
+
+        // 若算子树含窗口算子（内存实现），先物化为临时表再走 SQL
+        operator = materializeWindows(operator);
 
         String sql = toSql(operator);
         if (sql == null || sql.isBlank()) {
@@ -582,5 +600,192 @@ public class InMemoryEngine implements ExecutionEngine {
     @Override
     public String toSql(LogicalOperator operator) {
         return sqlEngine.toSql(operator);
+    }
+
+    /** 递归查找窗口算子，内存执行并替换为临时表 From，返回新算子树 */
+    private LogicalOperator materializeWindows(LogicalOperator op) {
+        if (op instanceof com.pl.gdl.dataframe.operator.realtime.TumbleWindowOperator
+                || op instanceof com.pl.gdl.dataframe.operator.realtime.HopWindowOperator
+                || op instanceof com.pl.gdl.dataframe.operator.realtime.CumulateWindowOperator) {
+            RowDataFrame windowed = execute(op);
+            String tmpTable = "__window_" + System.nanoTime();
+            registerTable(tmpTable, windowed);
+            return new com.pl.gdl.dataframe.operator.base.FromOperator(null, tmpTable);
+        }
+        java.util.List<LogicalOperator> ups = op.getUpstream();
+        if (ups == null || ups.isEmpty()) return op;
+        boolean changed = false;
+        java.util.List<LogicalOperator> newUps = new java.util.ArrayList<>();
+        for (LogicalOperator u : ups) {
+            LogicalOperator nu = materializeWindows(u);
+            newUps.add(nu);
+            if (nu != u) changed = true;
+        }
+        if (!changed) return op;
+        // 用反射替换 upstream（LogicalOperator 的 upstream 可变）
+        try {
+            java.lang.reflect.Field f = LogicalOperator.class.getDeclaredField("upstream");
+            f.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.List<LogicalOperator> list = (java.util.List<LogicalOperator>) f.get(op);
+            list.clear();
+            list.addAll(newUps);
+        } catch (Exception e) {
+            throw new RuntimeException("替换窗口算子失败", e);
+        }
+        return op;
+    }
+
+    // ================= 实时窗口（内存实现，全数据源兼容） =================
+
+    /** 时间单位转毫秒 */
+    private static long toMillis(String amount, String unit) {
+        long n = Long.parseLong(amount.trim());
+        String u = unit.trim().toUpperCase(java.util.Locale.ROOT);
+        return switch (u) {
+            case "MILLISECONDS", "MILLISECOND", "MS" -> n;
+            case "SECONDS", "SECOND", "S" -> n * 1000L;
+            case "MINUTES", "MINUTE", "M" -> n * 60_000L;
+            case "HOURS", "HOUR", "H" -> n * 3_600_000L;
+            case "DAYS", "DAY", "D" -> n * 86_400_000L;
+            default -> throw new IllegalArgumentException("不支持的时间单位: " + unit);
+        };
+    }
+
+    /** 解析时间列值为 epoch millis */
+    private static long parseTime(Object v) {
+        if (v == null) throw new IllegalArgumentException("窗口时间列含 null");
+        if (v instanceof Number num) {
+            long l = num.longValue();
+            // 10 位=秒，13 位=毫秒
+            return String.valueOf(Math.abs(l)).length() <= 10 ? l * 1000L : l;
+        }
+        String s = String.valueOf(v).trim();
+        // 去掉毫秒小数部分（如 "2026-10-08 10:00:00.0"）
+        s = s.replaceAll("\\.\\d+$", "");
+        // 尝试 ISO / yyyy-MM-dd HH:mm:ss
+        try {
+            return java.time.Instant.parse(s).toEpochMilli();
+        } catch (Exception ignored) {}
+        for (String fmt : new String[]{"yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"}) {
+            try {
+                java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(s,
+                        java.time.format.DateTimeFormatter.ofPattern(fmt));
+                return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+            } catch (Exception ignored) {}
+            try {
+                java.time.LocalDate ld = java.time.LocalDate.parse(s,
+                        java.time.format.DateTimeFormatter.ofPattern(fmt));
+                return ld.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+            } catch (Exception ignored) {}
+        }
+        // 纯数字字符串
+        try {
+            long l = Long.parseLong(s);
+            return String.valueOf(Math.abs(l)).length() <= 10 ? l * 1000L : l;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("无法解析时间值: " + s);
+        }
+    }
+
+    /** 构造窗口输出：原列 + window_start/window_end */
+    private static RowDataFrame buildWindowed(RowDataFrame input,
+                                              java.util.List<com.pl.gdl.common.model.Row> outRows,
+                                              java.util.List<long[]> windows) {
+        java.util.List<com.pl.gdl.common.model.ColumnInfo> inCols = input.getColumns();
+        java.util.List<com.pl.gdl.common.model.ColumnInfo> outCols = new java.util.ArrayList<>(inCols);
+        outCols.add(new com.pl.gdl.common.model.ColumnInfo("window_start", "timestamp"));
+        outCols.add(new com.pl.gdl.common.model.ColumnInfo("window_end", "timestamp"));
+        RowDataFrame out = new RowDataFrame(outCols);
+        for (int i = 0; i < outRows.size(); i++) {
+            com.pl.gdl.common.model.Row r = outRows.get(i);
+            long[] w = windows.get(i);
+            java.util.Map<String, Object> vals = new java.util.LinkedHashMap<>();
+            for (com.pl.gdl.common.model.ColumnInfo c : inCols) {
+                vals.put(c.getColumnName(), r.getValue(c.getColumnName()));
+            }
+            vals.put("window_start", new java.sql.Timestamp(w[0]));
+            vals.put("window_end", new java.sql.Timestamp(w[1]));
+            out.addRow(new com.pl.gdl.common.model.Row(vals));
+        }
+        return out;
+    }
+
+    /** 滚动窗口：size 固定、无重叠 */
+    private RowDataFrame applyTumbleWindow(RowDataFrame input,
+            com.pl.gdl.dataframe.operator.realtime.TumbleWindowOperator op) {
+        long sizeMs = toMillis(op.getSize(), op.getUnit());
+        long offsetMs = (op.getOffset() != null && !op.getOffset().isBlank())
+                ? toMillis(op.getOffset(), op.getOffsetUnit()) : 0L;
+        String timeCol = op.getTimeColumn();
+        java.util.List<com.pl.gdl.common.model.Row> outRows = new java.util.ArrayList<>();
+        java.util.List<long[]> windows = new java.util.ArrayList<>();
+        for (com.pl.gdl.common.model.Row r : input.getRows()) {
+            long t = parseTime(r.getValue(timeCol));
+            long wStart = ((t - offsetMs) / sizeMs) * sizeMs + offsetMs;
+            // 负时间戳向下取整修正
+            if (wStart > t) wStart -= sizeMs;
+            outRows.add(r);
+            windows.add(new long[]{wStart, wStart + sizeMs});
+        }
+        return buildWindowed(input, outRows, windows);
+    }
+
+    /** 滑动窗口：size 固定、按 slide 步长滑动，一行属多窗 */
+    private RowDataFrame applyHopWindow(RowDataFrame input,
+            com.pl.gdl.dataframe.operator.realtime.HopWindowOperator op) {
+        long slideMs = toMillis(op.getSlideTime(), op.getSlideUnit());
+        long sizeMs = toMillis(op.getWindowSize(), op.getWindowUnit());
+        long offsetMs = (op.getOffset() != null && !op.getOffset().isBlank())
+                ? toMillis(op.getOffset(), op.getOffsetUnit()) : 0L;
+        if (slideMs <= 0 || sizeMs <= 0) throw new IllegalArgumentException("窗口大小/步长必须为正");
+        String timeCol = op.getTimeColumn();
+        java.util.List<com.pl.gdl.common.model.Row> outRows = new java.util.ArrayList<>();
+        java.util.List<long[]> windows = new java.util.ArrayList<>();
+        for (com.pl.gdl.common.model.Row r : input.getRows()) {
+            long t = parseTime(r.getValue(timeCol));
+            // 包含 t 的窗口：wStart ∈ (t - size, t]，且 wStart 与 offset 对齐到 slide
+            long first = t - sizeMs + 1;
+            long wStart = ((first - offsetMs) / slideMs) * slideMs + offsetMs;
+            if (wStart < first) wStart += slideMs;
+            // 负时间戳修正
+            while (wStart + slideMs <= first) wStart += slideMs;
+            while (wStart - slideMs >= first - slideMs && wStart - slideMs + sizeMs > t) {
+                // 保持最小的 wStart
+                long cand = wStart - slideMs;
+                if (cand + sizeMs > t && cand <= t) wStart = cand; else break;
+            }
+            for (long ws = wStart; ws <= t; ws += slideMs) {
+                if (ws + sizeMs > t) {
+                    outRows.add(r);
+                    windows.add(new long[]{ws, ws + sizeMs});
+                }
+            }
+        }
+        return buildWindowed(input, outRows, windows);
+    }
+
+    /** 累积窗口：从起点按 step 增长到 size，如 [00:00-00:05),[00:00-00:10)... */
+    private RowDataFrame applyCumulateWindow(RowDataFrame input,
+            com.pl.gdl.dataframe.operator.realtime.CumulateWindowOperator op) {
+        long stepMs = toMillis(op.getStepTime(), op.getStepUnit());
+        long sizeMs = toMillis(op.getWindowSize(), op.getWindowUnit());
+        String timeCol = op.getTimeColumn();
+        java.util.List<com.pl.gdl.common.model.Row> outRows = new java.util.ArrayList<>();
+        java.util.List<long[]> windows = new java.util.ArrayList<>();
+        for (com.pl.gdl.common.model.Row r : input.getRows()) {
+            long t = parseTime(r.getValue(timeCol));
+            long base = (t / sizeMs) * sizeMs;
+            if (base > t) base -= sizeMs;
+            // 该行属于 [base, base+k*step)，k=1..size/step，且 base+k*step > t
+            for (long k = 1; k * stepMs <= sizeMs; k++) {
+                long wEnd = base + k * stepMs;
+                if (wEnd > t) {
+                    outRows.add(r);
+                    windows.add(new long[]{base, wEnd});
+                }
+            }
+        }
+        return buildWindowed(input, outRows, windows);
     }
 }
