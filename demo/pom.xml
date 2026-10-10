@@ -6,7 +6,7 @@
 
     <groupId>com.pl.gdl.demo</groupId>
     <artifactId>gdl-demo</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
     <name>GDL Demo</name>
     <description>GroovyDefine Language 真实可运行演示项目</description>
@@ -15,7 +15,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <gdl.version>1.0.0-SNAPSHOT</gdl.version>
+        <gdl.version>1.0.0</gdl.version>
     </properties>
 
     <dependencies>

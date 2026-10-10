@@ -18,6 +18,15 @@ public class DynamicOntologyClassLoader extends GroovyClassLoader {
      * </ul>
      */
     private static CompilerConfiguration sandboxedConfig() {
+        return buildConfig(false);
+    }
+
+    /** 可信本体类的编译配置：允许定义业务方法（其他沙箱限制不变） */
+    private static CompilerConfiguration trustedConfig() {
+        return buildConfig(true);
+    }
+
+    private static CompilerConfiguration buildConfig(boolean trusted) {
         CompilerConfiguration config = new CompilerConfiguration();
         SecureASTCustomizer secure = new SecureASTCustomizer();
         // 允许的星导入白名单：仅基础包 + GDL 本体相关包
@@ -27,18 +36,29 @@ public class DynamicOntologyClassLoader extends GroovyClassLoader {
                 "groovy.lang",
                 "com.pl.gdl.ontology.annotation",
                 "com.pl.gdl.ontology.model"));
-        // 禁止在脚本中定义方法（本体应为声明式）
-        secure.setMethodDefinitionAllowed(false);
+        // 可信本体类（开发者编写）允许定义业务方法；外部脚本禁止
+        secure.setMethodDefinitionAllowed(trusted);
         config.addCompilationCustomizers(secure);
         return config;
     }
 
     public DynamicOntologyClassLoader() {
-        super(DynamicOntologyClassLoader.class.getClassLoader(), sandboxedConfig());
+        this(false);
     }
 
     public DynamicOntologyClassLoader(ClassLoader parent) {
-        super(parent, sandboxedConfig());
+        this(parent, false);
+    }
+
+    /** @param trusted true=可信本体类（允许业务方法），false=沙箱脚本 */
+    public DynamicOntologyClassLoader(boolean trusted) {
+        super(DynamicOntologyClassLoader.class.getClassLoader(),
+                trusted ? trustedConfig() : sandboxedConfig());
+    }
+
+    /** @param trusted true=可信本体类（允许业务方法），false=沙箱脚本 */
+    public DynamicOntologyClassLoader(ClassLoader parent, boolean trusted) {
+        super(parent, trusted ? trustedConfig() : sandboxedConfig());
     }
 
     @Override

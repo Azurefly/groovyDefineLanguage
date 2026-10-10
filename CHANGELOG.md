@@ -4,6 +4,12 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0] - 2026-10-10
+
+首个正式版本。核心能力：GDL 查询引擎（16 种语法）、大数据下推（describe/pivot）、
+本体系统（CRUD/事务/批量/审计/乐观锁/软删除/生命周期钩子/关系/upsert/校验）、
+时间窗口（tumble/hop/cumulate）、SQL 注入防护（参数化 where + SqlSafe）。
+
 ## [Unreleased]
 
 ### 新增

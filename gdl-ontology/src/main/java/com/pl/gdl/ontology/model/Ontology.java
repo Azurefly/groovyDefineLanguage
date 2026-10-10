@@ -24,11 +24,36 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     private volatile java.util.Set<String> tableColumnsCache = null;
     /** 生命周期钩子：事件名 -> 闭包列表（beforeSave/afterSave/beforeUpdate/afterUpdate/beforeDelete/afterDelete） */
     private final Map<String, List<groovy.lang.Closure<?>>> hooks = new LinkedHashMap<>();
+    /** 关系定义：name -> Relation */
+    private final Map<String, Relation> relations = new LinkedHashMap<>();
+    /** 预加载的关系名（with() 指定） */
+    private final List<String> withRelations = new ArrayList<>();
+
+    /** 关系定义 */
+    public static class Relation {
+        public final String type; // "hasMany" | "belongsTo" | "manyToMany"
+        public final Ontology target;
+        public final String foreignKey; // hasMany: 子表外键；belongsTo: 本表外键
+        public final String localKey;   // 本表关联键（默认 id）
+        public final String targetKey;  // 目标表关联键（默认 id）
+        public final String joinTable;  // manyToMany 中间表
+        public final String joinForeignKey; // 中间表指向本表的外键
+        public final String joinTargetKey;  // 中间表指向目标表的外键
+        Relation(String type, Ontology target, String foreignKey, String localKey,
+                 String targetKey, String joinTable, String joinForeignKey, String joinTargetKey) {
+            this.type = type; this.target = target; this.foreignKey = foreignKey;
+            this.localKey = localKey; this.targetKey = targetKey;
+            this.joinTable = joinTable; this.joinForeignKey = joinForeignKey;
+            this.joinTargetKey = joinTargetKey;
+        }
+    }
     /** 软删除列名（约定：物理表有 deleted 列即启用），null 表示未启用；includeDeleted 为 true 时查询不过滤 */
     private volatile String softDeleteColumn = null;
     private volatile boolean softDeleteResolved = false;
     private volatile boolean includeDeletedFlag = false;
     public String oAuthor;
+    /** 写操作时是否自动校验（默认 false；设为 true 后 save/update/upsert 先校验再写） */
+    public boolean oValidateOnWrite = false;
     public CmdDatasource oDs;
     public CmdDataframe oDataframe;
     public CmdDataframe queryDataframe;
@@ -198,6 +223,15 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         if (queryDataframe == null) {
             queryDataframe = genODataframe();
         }
+    }
+
+    /**
+     * 参数化 where（防 SQL 注入）：where("age", ">", 18)
+     * 属性名自动映射物理列。
+     */
+    public Ontology where(String column, String operator, Object value) {
+        String mappedCol = mapAttributes(column);
+        return where(com.pl.gdl.dataframe.util.SqlSafe.condition(mappedCol, operator, value));
     }
 
     public Ontology where(String condition) {
@@ -404,6 +438,7 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
 
     public Ontology save(Map<String, Object> record) {
         if (record == null || record.isEmpty()) throw new IllegalArgumentException("save record 不能为空");
+        autoValidate(record);
         com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
         fillAuditFields(record, true);
         fillSoftDeleteDefault(record);
@@ -546,8 +581,404 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         return affected;
     }
 
+    /**
+     * Upsert：按 keyColumns 更新，0 行受影响则插入。
+     * keyColumns 为空时尝试从 @Column(primaryKey=true) 推断主键。
+     * 返回 "insert" 或 "update"。
+     * 注意：高并发下建议包在 transaction{} 里调用，避免更新-插入竞态。
+     */
+    public String upsert(Map<String, Object> record, String... keyColumns) {
+        if (record == null || record.isEmpty()) throw new IllegalArgumentException("upsert record 不能为空");
+        autoValidate(record);
+        List<String> keys = new ArrayList<>();
+        if (keyColumns != null) {
+            for (String k : keyColumns) if (k != null && !k.isBlank()) keys.add(k);
+        }
+        if (keys.isEmpty()) keys.addAll(inferPrimaryKeys());
+        if (keys.isEmpty()) throw new IllegalArgumentException("upsert 需要 keyColumns 或 @Column(primaryKey=true)");
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        Map<String, String> attrMap = attributeColumnMap();
+        // 构造 WHERE key1=? AND key2=?
+        List<String> keyCols = new ArrayList<>();
+        List<Object> keyVals = new ArrayList<>();
+        for (String k : keys) {
+            String phys = attrMap.getOrDefault(k, k);
+            Object v = record.get(k);
+            if (v == null) {
+                // 尝试物理列名
+                v = record.get(phys);
+            }
+            if (v == null) throw new IllegalArgumentException("upsert 缺少 key 列值: " + k);
+            keyCols.add(phys);
+            keyVals.add(v);
+        }
+        // 先 UPDATE（不含 key 列）
+        List<String> sets = new ArrayList<>();
+        List<Object> setVals = new ArrayList<>();
+        Map<String, Object> updateRec = new LinkedHashMap<>(record);
+        fillAuditFields(updateRec, false);
+        java.util.Set<String> keySetLower = new java.util.HashSet<>();
+        for (String kc : keyCols) keySetLower.add(kc.toLowerCase());
+        Object oldVersion = null;
+        String versionCol = null;
+        for (Map.Entry<String, Object> e : updateRec.entrySet()) {
+            String phys = attrMap.getOrDefault(e.getKey(), e.getKey());
+            if (keySetLower.contains(phys.toLowerCase())) continue;
+            if (phys.equalsIgnoreCase("version")) {
+                oldVersion = e.getValue();
+                versionCol = phys;
+                continue;
+            }
+            sets.add(phys + " = ?");
+            setVals.add(e.getValue());
+        }
+        if (versionCol != null) sets.add(versionCol + " = " + versionCol + " + 1");
+        StringBuilder whereSb = new StringBuilder();
+        for (int i = 0; i < keyCols.size(); i++) {
+            if (i > 0) whereSb.append(" AND ");
+            whereSb.append(keyCols.get(i)).append(" = ?");
+        }
+        if (versionCol != null) whereSb.append(" AND ").append(versionCol).append(" = ?");
+        fireBefore("beforeUpdate", whereSb.toString(), updateRec);
+        String updateSql = "UPDATE " + oTable + " SET " + String.join(", ", sets) + " WHERE " + whereSb;
+        List<Object> updateParams = new ArrayList<>(setVals);
+        updateParams.addAll(keyVals);
+        if (versionCol != null) updateParams.add(oldVersion);
+        int affected = engine.executeUpdate(updateSql, updateParams);
+        if (affected > 0) {
+            fireAfter("afterUpdate", whereSb.toString(), updateRec, affected);
+            return "update";
+        }
+        // 0 行：INSERT
+        Map<String, Object> insertRec = new LinkedHashMap<>(record);
+        fillAuditFields(insertRec, true);
+        fillSoftDeleteDefault(insertRec);
+        fireBefore("beforeSave", insertRec);
+        List<String> columns = new ArrayList<>();
+        List<Object> values = new ArrayList<>();
+        for (Map.Entry<String, Object> e : insertRec.entrySet()) {
+            columns.add(attrMap.getOrDefault(e.getKey(), e.getKey()));
+            values.add(e.getValue());
+        }
+        String insertSql = "INSERT INTO " + oTable + " (" + String.join(", ", columns) + ") VALUES (" +
+                String.join(", ", Collections.nCopies(columns.size(), "?")) + ")";
+        engine.executeUpdate(insertSql, values);
+        fireAfter("afterSave", insertRec);
+        return "insert";
+    }
+
+    /** 从 @Column(primaryKey=true) 推断主键属性名 */
+    private List<String> inferPrimaryKeys() {
+        List<String> pks = new ArrayList<>();
+        try {
+            for (java.lang.reflect.Field f : getClass().getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                com.pl.gdl.ontology.annotation.Column col =
+                        f.getAnnotation(com.pl.gdl.ontology.annotation.Column.class);
+                if (col != null && col.primaryKey()) {
+                    pks.add(f.getName());
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return pks;
+    }
+
+    /**
+     * 一对多：child 表通过 foreignKey 关联本表 localKey。
+     * 例：order.hasMany("lines", lineOntology, "order_id", "id")
+     */
+    public Ontology hasMany(String name, Ontology child, String foreignKey, String localKey) {
+        relations.put(name, new Relation("hasMany", child, foreignKey,
+                localKey != null ? localKey : "id", "id", null, null, null));
+        return this;
+    }
+    public Ontology hasMany(String name, Ontology child, String foreignKey) {
+        return hasMany(name, child, foreignKey, "id");
+    }
+
+    /**
+     * 多对一：本表通过 foreignKey 关联 parent 表 targetKey。
+     * 例：line.belongsTo("order", orderOntology, "order_id", "id")
+     */
+    public Ontology belongsTo(String name, Ontology parent, String foreignKey, String targetKey) {
+        relations.put(name, new Relation("belongsTo", parent, foreignKey,
+                "id", targetKey != null ? targetKey : "id", null, null, null));
+        return this;
+    }
+    public Ontology belongsTo(String name, Ontology parent, String foreignKey) {
+        return belongsTo(name, parent, foreignKey, "id");
+    }
+
+    /**
+     * 多对多：通过中间表关联。
+     * 例：student.manyToMany("courses", courseOntology, "t_student_course",
+     *                        "student_id", "course_id")
+     */
+    public Ontology manyToMany(String name, Ontology target, String joinTable,
+                               String joinForeignKey, String joinTargetKey) {
+        relations.put(name, new Relation("manyToMany", target, null, "id", "id",
+                joinTable, joinForeignKey, joinTargetKey));
+        return this;
+    }
+
+    /** 预加载关系：with("lines", "order").fetch() */
+    public Ontology with(String... names) {
+        withRelations.clear();
+        if (names != null) for (String n : names) if (n != null && !n.isBlank()) withRelations.add(n);
+        return this;
+    }
+
+    /**
+     * 查询并预加载 with() 指定的关系，返回嵌套 Map 列表。
+     * 每行 = 本表列 + 关系名 -> List<Map>(hasMany/manyToMany) 或 Map(belongsTo)。
+     */
+    public List<Map<String, Object>> fetch() {
+        initQuery();
+        com.pl.gdl.common.model.RowDataFrame df = queryDataframe.collect();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (com.pl.gdl.common.model.Row r : df.getRows()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            for (com.pl.gdl.common.model.ColumnInfo c : df.getColumns()) {
+                m.put(c.getColumnName(), r.getValue(c.getColumnName()));
+            }
+            rows.add(m);
+        }
+        for (String relName : withRelations) {
+            Relation rel = relations.get(relName);
+            if (rel == null) throw new IllegalArgumentException("未定义关系: " + relName);
+            loadRelation(rows, relName, rel);
+        }
+        withRelations.clear();
+        return rows;
+    }
+
+    private void loadRelation(List<Map<String, Object>> rows, String relName, Relation rel) {
+        if (rows.isEmpty()) return;
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        if ("hasMany".equals(rel.type)) {
+            // 收集本表 localKey 值
+            java.util.Set<Object> keys = new java.util.LinkedHashSet<>();
+            for (Map<String, Object> r : rows) {
+                Object k = r.get(rel.localKey);
+                if (k != null) keys.add(k);
+            }
+            if (keys.isEmpty()) {
+                for (Map<String, Object> r : rows) r.put(relName, new ArrayList<>());
+                return;
+            }
+            String placeholders = String.join(", ", Collections.nCopies(keys.size(), "?"));
+            String sql = "SELECT * FROM " + rel.target.oTable + " WHERE " + rel.foreignKey +
+                    " IN (" + placeholders + ")";
+            List<Object> params = new ArrayList<>(keys);
+            // 用 target 的查询能力加载（复用其列映射）
+            com.pl.gdl.common.model.RowDataFrame cdf = queryTable(rel.target, sql, params);
+            // 按外键分组
+            Map<Object, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
+            for (com.pl.gdl.common.model.Row cr : cdf.getRows()) {
+                Map<String, Object> cm = new LinkedHashMap<>();
+                for (com.pl.gdl.common.model.ColumnInfo c : cdf.getColumns()) {
+                    cm.put(c.getColumnName(), cr.getValue(c.getColumnName()));
+                }
+                Object fk = cr.getValue(rel.foreignKey);
+                grouped.computeIfAbsent(fk, k -> new ArrayList<>()).add(cm);
+            }
+            for (Map<String, Object> r : rows) {
+                Object k = r.get(rel.localKey);
+                r.put(relName, grouped.getOrDefault(k, new ArrayList<>()));
+            }
+        } else if ("belongsTo".equals(rel.type)) {
+            java.util.Set<Object> keys = new java.util.LinkedHashSet<>();
+            for (Map<String, Object> r : rows) {
+                Object k = r.get(rel.foreignKey);
+                if (k != null) keys.add(k);
+            }
+            if (keys.isEmpty()) {
+                for (Map<String, Object> r : rows) r.put(relName, null);
+                return;
+            }
+            String placeholders = String.join(", ", Collections.nCopies(keys.size(), "?"));
+            String sql = "SELECT * FROM " + rel.target.oTable + " WHERE " + rel.targetKey +
+                    " IN (" + placeholders + ")";
+            com.pl.gdl.common.model.RowDataFrame pdf = queryTable(rel.target, sql, new ArrayList<>(keys));
+            Map<Object, Map<String, Object>> byKey = new LinkedHashMap<>();
+            for (com.pl.gdl.common.model.Row pr : pdf.getRows()) {
+                Map<String, Object> pm = new LinkedHashMap<>();
+                for (com.pl.gdl.common.model.ColumnInfo c : pdf.getColumns()) {
+                    pm.put(c.getColumnName(), pr.getValue(c.getColumnName()));
+                }
+                byKey.put(pr.getValue(rel.targetKey), pm);
+            }
+            for (Map<String, Object> r : rows) {
+                r.put(relName, byKey.get(r.get(rel.foreignKey)));
+            }
+        } else if ("manyToMany".equals(rel.type)) {
+            java.util.Set<Object> keys = new java.util.LinkedHashSet<>();
+            for (Map<String, Object> r : rows) {
+                Object k = r.get(rel.localKey);
+                if (k != null) keys.add(k);
+            }
+            if (keys.isEmpty()) {
+                for (Map<String, Object> r : rows) r.put(relName, new ArrayList<>());
+                return;
+            }
+            String placeholders = String.join(", ", Collections.nCopies(keys.size(), "?"));
+            // 先查中间表
+            String jtSql = "SELECT * FROM " + rel.joinTable + " WHERE " + rel.joinForeignKey +
+                    " IN (" + placeholders + ")";
+            com.pl.gdl.common.model.RowDataFrame jdf = queryTableRaw(jtSql, new ArrayList<>(keys));
+            // 中间表 -> 目标 key 映射
+            Map<Object, java.util.Set<Object>> localToTargets = new LinkedHashMap<>();
+            java.util.Set<Object> targetKeys = new java.util.LinkedHashSet<>();
+            for (com.pl.gdl.common.model.Row jr : jdf.getRows()) {
+                Object lk = jr.getValue(rel.joinForeignKey);
+                Object tk = jr.getValue(rel.joinTargetKey);
+                localToTargets.computeIfAbsent(lk, k -> new java.util.LinkedHashSet<>()).add(tk);
+                targetKeys.add(tk);
+            }
+            Map<Object, Map<String, Object>> targetByKey = new LinkedHashMap<>();
+            if (!targetKeys.isEmpty()) {
+                String tPlaceholders = String.join(", ", Collections.nCopies(targetKeys.size(), "?"));
+                String tSql = "SELECT * FROM " + rel.target.oTable + " WHERE " + rel.targetKey +
+                        " IN (" + tPlaceholders + ")";
+                com.pl.gdl.common.model.RowDataFrame tdf = queryTable(rel.target, tSql, new ArrayList<>(targetKeys));
+                for (com.pl.gdl.common.model.Row tr : tdf.getRows()) {
+                    Map<String, Object> tm = new LinkedHashMap<>();
+                    for (com.pl.gdl.common.model.ColumnInfo c : tdf.getColumns()) {
+                        tm.put(c.getColumnName(), tr.getValue(c.getColumnName()));
+                    }
+                    targetByKey.put(tr.getValue(rel.targetKey), tm);
+                }
+            }
+            for (Map<String, Object> r : rows) {
+                List<Map<String, Object>> list = new ArrayList<>();
+                java.util.Set<Object> tks = localToTargets.get(r.get(rel.localKey));
+                if (tks != null) for (Object tk : tks) {
+                    Map<String, Object> tm = targetByKey.get(tk);
+                    if (tm != null) list.add(tm);
+                }
+                r.put(relName, list);
+            }
+        }
+    }
+
+    /** 在 target 本体的数据源上执行 SQL 查询（JDBC） */
+    private com.pl.gdl.common.model.RowDataFrame queryTable(Ontology target, String sql, List<Object> params) {
+        return queryTableRaw(sql, params);
+    }
+
+    private com.pl.gdl.common.model.RowDataFrame queryTableRaw(String sql, List<Object> params) {
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        try {
+            java.sql.Connection conn = engine.queryConnection();
+            boolean inTx = engine.inTransaction();
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (int i = 0; i < params.size(); i++) ps.setObject(i + 1, params.get(i));
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    com.pl.gdl.common.model.RowDataFrame df = new com.pl.gdl.common.model.RowDataFrame();
+                    java.sql.ResultSetMetaData md = rs.getMetaData();
+                    List<com.pl.gdl.common.model.ColumnInfo> cols = new ArrayList<>();
+                    for (int i = 1; i <= md.getColumnCount(); i++) {
+                        cols.add(new com.pl.gdl.common.model.ColumnInfo(
+                                md.getColumnLabel(i).toLowerCase(), md.getColumnTypeName(i)));
+                    }
+                    df.setColumns(cols);
+                    while (rs.next()) {
+                        Map<String, Object> vals = new LinkedHashMap<>();
+                        for (com.pl.gdl.common.model.ColumnInfo c : cols) {
+                            vals.put(c.getColumnName(), rs.getObject(c.getColumnName()));
+                        }
+                        df.addRow(new com.pl.gdl.common.model.Row(vals));
+                    }
+                    return df;
+                }
+            } finally {
+                if (!inTx) conn.close();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("关系加载查询失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 校验 record 是否满足 @Column 约束（nullable/dataLength）。
+     * 返回错误信息列表，空表示通过。
+     */
+    public List<String> validate(Map<String, Object> record) {
+        List<String> errors = new ArrayList<>();
+        if (record == null) {
+            errors.add("record 不能为空");
+            return errors;
+        }
+        Map<String, String> attrMap = attributeColumnMap();
+        // 反向映射：物理列 -> 属性名
+        Map<String, String> physToAttr = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : attrMap.entrySet()) {
+            physToAttr.put(e.getValue().toLowerCase(), e.getKey());
+        }
+        try {
+            for (java.lang.reflect.Field f : getClass().getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                com.pl.gdl.ontology.annotation.Column col =
+                        f.getAnnotation(com.pl.gdl.ontology.annotation.Column.class);
+                if (col == null) continue;
+                String attrName = f.getName();
+                String physName = attrMap.getOrDefault(attrName, attrName);
+                // record 中的值（支持属性名或物理列名）
+                Object v = record.get(attrName);
+                if (v == null) v = record.get(physName);
+                // 非空校验
+                if (!col.nullable() && v == null) {
+                    errors.add(attrName + " 不能为空");
+                }
+                // 长度校验（字符串）
+                if (v instanceof String s && s.length() > col.dataLength()) {
+                    errors.add(attrName + " 长度超限（最大 " + col.dataLength() + "，实际 " + s.length() + "）");
+                }
+            }
+        } catch (Exception e) {
+            errors.add("校验异常: " + e.getMessage());
+        }
+        // 自定义校验钩子：validate(record, errors)
+        fireValidate(record, errors);
+        return errors;
+    }
+
+    /** 校验不通过时抛 ValidationException */
+    public void validateOrThrow(Map<String, Object> record) {
+        List<String> errors = validate(record);
+        if (!errors.isEmpty()) {
+            throw new com.pl.gdl.common.exception.OntologyValidationException(
+                    "本体校验失败: " + String.join("; ", errors));
+        }
+    }
+
+    /** 自定义校验钩子 */
+    private void fireValidate(Map<String, Object> record, List<String> errors) {
+        List<groovy.lang.Closure<?>> list = hooks.get("validate");
+        if (list == null) return;
+        for (groovy.lang.Closure<?> c : list) {
+            try {
+                c.call(record, errors);
+            } catch (Exception e) {
+                errors.add("自定义校验异常: " + e.getMessage());
+            }
+        }
+    }
+
+    /** 注册自定义校验：o.validateHook { record, errors -> if (...) errors << "msg" } */
+    public Ontology validateHook(groovy.lang.Closure<?> hook) {
+        return hook("validate", hook);
+    }
+
+    /** 写操作前的自动校验（oValidateOnWrite=true 时） */
+    private void autoValidate(Map<String, Object> record) {
+        if (oValidateOnWrite) validateOrThrow(record);
+    }
+
     public Ontology update(String expr, Map<String, Object> record) {
         if (record == null || record.isEmpty()) throw new IllegalArgumentException("update record 不能为空");
+        autoValidate(record);
         com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
         fillAuditFields(record, false);
         fireBefore("beforeUpdate", expr, record);

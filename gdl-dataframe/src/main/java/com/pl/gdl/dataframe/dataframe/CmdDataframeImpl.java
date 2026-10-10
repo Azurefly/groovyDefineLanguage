@@ -112,6 +112,24 @@ public class CmdDataframeImpl implements CmdDataframe {
     }
 
     @Override
+    public CmdDataframe where(String column, String operator, Object value) {
+        return where(com.pl.gdl.dataframe.util.SqlSafe.condition(column, operator, value));
+    }
+
+    @Override
+    public CmdDataframe where(java.util.Map<String, Object> equals) {
+        if (equals == null || equals.isEmpty()) throw new IllegalArgumentException("条件 Map 不能为空");
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, Object> e : equals.entrySet()) {
+            Object v = e.getValue();
+            parts.add(v == null
+                    ? com.pl.gdl.dataframe.util.SqlSafe.condition(e.getKey(), "IS", null)
+                    : com.pl.gdl.dataframe.util.SqlSafe.condition(e.getKey(), "=", v));
+        }
+        return where(String.join(" AND ", parts));
+    }
+
+    @Override
     public CmdDataframe select(String... expressions) {
         return new CmdDataframeImpl(new SelectOperator(operator, expressions), executionEngine);
     }

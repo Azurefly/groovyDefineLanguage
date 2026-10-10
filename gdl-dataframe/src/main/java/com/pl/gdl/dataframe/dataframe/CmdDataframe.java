@@ -19,6 +19,16 @@ public interface CmdDataframe {
 
     // Basic transformations
     CmdDataframe where(String condition);
+    /**
+     * 参数化 where（防 SQL 注入）：列名与操作符经白名单校验，值经转义。
+     * 例：where("age", ">", 18)；where("name", "IN", List.of("a","b"))；where("deleted", "IS", null)
+     */
+    CmdDataframe where(String column, String operator, Object value);
+    /**
+     * 等值 Map 条件（防 SQL 注入）：where(Map.of("status", "ACTIVE", "age", 18))
+     * 生成 "status = 'ACTIVE' AND age = 18"
+     */
+    CmdDataframe where(java.util.Map<String, Object> equals);
     CmdDataframe select(String... expressions);
     CmdDataframe mapping(Map<String, String> mapping);
     CmdDataframe withColumn(String colName, String expression);

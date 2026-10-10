@@ -28,6 +28,8 @@ public class OntologyRegistry {
 
     private final Map<String, OntologyMetadata> registeredOntologies = new ConcurrentHashMap<>();
     private DynamicOntologyClassLoader classLoader = new DynamicOntologyClassLoader();
+    /** 可信本体类加载器（允许业务方法），懒加载 */
+    private volatile DynamicOntologyClassLoader trustedClassLoader;
 
     private OntologyRegistry() {}
 
@@ -40,6 +42,48 @@ public class OntologyRegistry {
      *
      * @throws OntologyValidationException 本体实例化成功但 {@link Ontology#validate()} 校验失败时抛出
      */
+    /**
+     * 注册可信本体类（允许定义业务方法）。
+     * 仅用于开发者编写的 @Table 本体类；外部输入的脚本请用 {@link #registerOntology(String)}（沙箱）。
+     * 同名类重复注册返回失败（避免 GroovyClassLoader 的重复定义不稳定行为）。
+     */
+    public synchronized RegisterRsp registerTrustedOntology(String gdlScript) {
+        if (gdlScript == null || gdlScript.isBlank()) {
+            return RegisterRsp.fail("GDL script content cannot be empty");
+        }
+        if (trustedClassLoader == null) {
+            trustedClassLoader = new DynamicOntologyClassLoader(true);
+        }
+        final Class<? extends Ontology> ontoClass;
+        try {
+            Class<?> clazz = trustedClassLoader.parseClass(gdlScript);
+            if (!Ontology.class.isAssignableFrom(clazz)) {
+                return RegisterRsp.fail("Class does not extend " + Ontology.class.getName());
+            }
+            @SuppressWarnings("unchecked")
+            Class<? extends Ontology> casted = (Class<? extends Ontology>) clazz;
+            ontoClass = casted;
+        } catch (Exception e) {
+            return RegisterRsp.fail("Failed to compile trusted ontology: " + e.getMessage());
+        }
+        String fullName = ontoClass.getName();
+        if (registeredOntologies.containsKey(fullName)) {
+            return RegisterRsp.fail("Ontology " + fullName + " is already registered, please rename or update");
+        }
+        final Ontology instance;
+        try {
+            instance = ontoClass.getDeclaredConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            return RegisterRsp.fail("Failed to instantiate ontology " + fullName + ": " + e.getMessage());
+        }
+        // 校验失败直接抛 OntologyValidationException
+        instance.validate();
+
+        OntologyMetadata meta = new OntologyMetadata(ontoClass);
+        registeredOntologies.put(fullName, meta);
+        return RegisterRsp.success("Trusted ontology registered successfully", Map.of(fullName, "SUCCESS"));
+    }
+
     public synchronized RegisterRsp registerOntology(String gdlScript) {
         if (gdlScript == null || gdlScript.isBlank()) {
             return RegisterRsp.fail("GDL script content cannot be empty");

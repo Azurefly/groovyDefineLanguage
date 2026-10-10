@@ -105,6 +105,11 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
         return txConn != null ? txConn : connectionManager.getConnection(datasource);
     }
 
+    /** 获取查询连接（事务中复用事务连接；调用方负责关闭非事务连接） */
+    public java.sql.Connection queryConnection() throws java.sql.SQLException {
+        return writeConnection();
+    }
+
     /**
      * 执行写 SQL（INSERT/UPDATE/DELETE），返回影响行数。
      * 事务中则复用事务连接（不关闭）；非事务则每次取新连接。
@@ -112,6 +117,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
      */
     public int executeUpdate(String sql, java.util.List<Object> params) {
         boolean inTx = inTransaction();
+        long start = System.currentTimeMillis();
         try {
             java.sql.Connection conn = writeConnection();
             try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -120,12 +126,19 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
                         ps.setObject(i + 1, params.get(i));
                     }
                 }
-                return ps.executeUpdate();
+                int affected = ps.executeUpdate();
+                com.pl.gdl.common.metrics.GdlMetrics.get().counter("jdbc.write");
+                return affected;
             } finally {
                 if (!inTx) conn.close();
             }
         } catch (java.sql.SQLException e) {
+            com.pl.gdl.common.metrics.GdlMetrics.get().counter("jdbc.write.error");
             throw new GdlExecutionException("JDBC write failed: " + e.getMessage() + " | SQL: " + sql, e);
+        } finally {
+            long ms = System.currentTimeMillis() - start;
+            com.pl.gdl.common.metrics.GdlMetrics.get().timer("jdbc.write", ms);
+            logSlow("WRITE", sql, ms);
         }
     }
 
@@ -135,6 +148,8 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
      */
     public int[] executeBatch(String sql, java.util.List<java.util.List<Object>> batchParams) {
         boolean inTx = inTransaction();
+        long start = System.currentTimeMillis();
+        int totalRows = batchParams == null ? 0 : batchParams.size();
         try {
             java.sql.Connection conn = writeConnection();
             try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -144,12 +159,28 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
                     }
                     ps.addBatch();
                 }
-                return ps.executeBatch();
+                int[] result = ps.executeBatch();
+                com.pl.gdl.common.metrics.GdlMetrics.get().counter("jdbc.batch", totalRows);
+                return result;
             } finally {
                 if (!inTx) conn.close();
             }
         } catch (java.sql.SQLException e) {
+            com.pl.gdl.common.metrics.GdlMetrics.get().counter("jdbc.batch.error");
             throw new GdlExecutionException("JDBC batch write failed: " + e.getMessage() + " | SQL: " + sql, e);
+        } finally {
+            long ms = System.currentTimeMillis() - start;
+            com.pl.gdl.common.metrics.GdlMetrics.get().timer("jdbc.batch", ms);
+            logSlow("BATCH(" + totalRows + ")", sql, ms);
+        }
+    }
+
+    /** 慢查询日志：超过阈值打印到 stderr（生产可接日志框架） */
+    private void logSlow(String kind, String sql, long ms) {
+        long threshold = com.pl.gdl.common.metrics.GdlMetrics.slowQueryThresholdMs();
+        if (ms >= threshold) {
+            String preview = sql.length() > 200 ? sql.substring(0, 200) + "..." : sql;
+            System.err.println("[GDL-SLOW] " + kind + " " + ms + "ms >= " + threshold + "ms | " + preview);
         }
     }
 
