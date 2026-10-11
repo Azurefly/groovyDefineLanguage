@@ -93,30 +93,40 @@ Execution
 - **缓存**：`cache()`/`uncache()`/`isCached()` 显式缓存中间结果
 - **集合算子**：`union`, `unionAll`, `subtract`, `subtractAll`, `intersect`, `intersectAll`
 - **关联算子**：`join`, `leftJoin`, `rightJoin`, `fullJoin`, `exists`, `notExists`
-- **输出算子**：`to`, `overwriteTo`, `fields`, `ttl`, `overwrite`, `partition`, `upsert`, `view`
+- **输出算子**：`to`, `overwriteTo`, `fields`, `ttl`, `overwrite`, `partition`, `view`
 - **流计算窗口**：`tumbleWindow`, `hopWindow`, `cumulateWindow`
 - **调度信号量**：`periodReactor`, `taskReactor`, `increment`
 - **高级算子**：`http`（支持 GET/POST/分页/认证/`REF{}`动态取值）、`llmCall`、`groovy` 自定义闭包、`python` 脚本、`CustomProcess` 自定义扩展
   - 安全说明：`groovy` 脚本默认在沙箱中编译执行（import 白名单、禁止 `System.exit`/`Runtime.exec`/`.execute()`/文件类等危险调用），`GdlCompiler.trusted()` 仅限受信任环境使用
 
-### 2. 动态变量生成器
+### 2. 企业级特性（1.0.0+）
+- **SQL 注入防护**：`where("age", ">", 18)` 参数化 API + `SqlSafe` 白名单校验
+- **可观测性**：`GdlMetrics` 指标（计数/计时/仪表）+ 慢查询日志（`gdl.metrics.slowQueryMs`）
+- **查询超时**：`gdl.jdbc.queryTimeoutSec` 防止跑飞查询
+- **性能**：ResultSet 转换优化、批量插入事务化、WHERE 合并（10 万行基准 -46%）
+- **调试**：`explain()` 打印算子链 + 生成 SQL；`count()`/`first()` 便捷 API
+
+### 3. 动态变量生成器
 通过 `variable("生成器名称", 参数Map)` 动态求值：
 - `CurrentTimeVar`: 支持 `DATE8`, `DATE10`, `DATE14`, `DATE_8`, `DATE_14`, `SEC` 等时间变量
 - `CommonIncrementVar`: 增量高水位线抽取条件
 
-### 3. 业务本体模型（Ontology）
+### 4. 业务本体模型（Ontology）
 - 业务类继承 `Ontology`，使用 `@Table` 与 `@Column` 注解定义模型元数据与物理表映射
 - 支持通过 `OntologyRegistry` 进行动态字节码编译与热加载，规避 Metaspace 内存泄露
-- `save`/`delete`/`update`/`addColumns`/`dropTable` 为接口预留，当前版本尚未实现（调用抛 `UnsupportedOperationException`），请勿用于生产写操作
+- **写操作**（JDBC 真实写回）：`save`/`saveBatch`/`update`/`upsert`/`delete`（软删除）/`forceDelete`
+- **事务**：`transaction { }` 闭包式事务，异常回滚、嵌套合并
+- **企业特性**：审计字段自动填充、`count()` 分页总数、乐观锁（`version`）、`hasMany`/`belongsTo`/`manyToMany` 关系预加载、`@Column` 业务校验、生命周期钩子
+- **可信业务方法**：`registerTrustedOntology` 允许定义业务方法（沙箱默认仍禁止）
 - 支持链式查询 `where`, `select`, `mapping`, `sort`, `limit`, `distinct`，及跨地市漂移查询与多本体数据传递
 
-### 4. 跨节点漂移计算（Drift）
+### 5. 跨节点漂移计算（Drift）
 - 依据数据源的 `areaCode`，自动分析全图亲和性
 - 遇到跨地域边时，自动将 DAG 图切割为本地执行子图与远端执行子图（规划能力已实现）
 - `driftTo().attach()` 的跨地域数据传输执行层当前尚未实现（调用抛 `UnsupportedOperationException`）；`driftFrom()` 当前退化为普通 `from()` 查询
 - 传输使用 `gdl_temp_{uuid}_{timestamp}` 临时表命名规范（中间表物理建表/清理的负责人待明确）
 
-### 5. 第三方远程调用与服务化支持
+### 6. 第三方远程调用与服务化支持
 - **独立 HTTP 服务**：内置高可用 HTTP 服务，通过 `./bin/start-server.sh <port> [token]` 启动
   - 安全默认：鉴权默认开启。启动时传入 `token` 即启用鉴权（请求头 `gdl-token`）；未传 `token` 则进入 open 模式并打印醒目警告，仅建议本地调试使用
 - **Java 远程 SDK**：提供 `GdlHttpEngineClient` 实现透明 RPC 远程调用

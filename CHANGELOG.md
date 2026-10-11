@@ -13,6 +13,15 @@
 ## [Unreleased]
 
 ### 新增
+- API：`CmdDataframe.count()`（COUNT(*) 下推）、`first()`、`isEmpty()`、`explain()`（算子链 + SQL）
+- 测试：`SqlSafeTest`（7）、`GdlMetricsTest`（4）、`OntologyWriteTest`（5，H2 真实库）
+
+### 优化
+- 性能（10 万行基准）：ResultSet 转换缓存列名（-27%）、`registerTable` 事务+分批（-46%）、连续 WHERE 自动合并
+- 查询超时：`gdl.jdbc.queryTimeoutSec`（JdbcExecutionEngine/InMemoryEngine 生效）
+- 文档：`13_性能调优指南.md`（基准数据 + 6 条原则）；README 更新本体写操作与企业特性
+
+### 新增（前序）
 - 数据源：Hive JDBC 支持（`HiveJdbcDatasource implements JdbcDatasource`），`DatasourceRegistry` 的 HIVE provider 根据是否提供 `url` 自动选择 JDBC 或配置型实现；本地 HiveServer2（3.1.3）全流程实测通过（建表/插入/查询/聚合/INSERT OVERWRITE/元数据/DROP）
 - LLM：`LlmClient`（OkHttp 调用 OpenAI-compatible Chat Completions API，支持 `no_proxy`）与 `LlmCallExecutor`（并发推理并回写结果列），已接入 `InMemoryEngine`；Ollama（qwen2:0.5b）本地实测通过
 - 算子：数据采样 `sample(n)`/`sample(fraction)`（支持 `seed` 可复现）、`describe()` 数据探查统计、`validate(condition, message)` 数据质量检查（违规抛 `DataQualityException`）、`pivot()` 行转列透视表、`cache()`/`uncache()`/`isCached()` 显式缓存
