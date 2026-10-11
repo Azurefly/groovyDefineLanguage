@@ -120,6 +120,31 @@ public class OntologyRegistry {
         return RegisterRsp.success("Ontology registered successfully", Map.of(fullName, "SUCCESS"));
     }
 
+    /**
+     * 直接注册已编译的本体 Class（无需 GDL 脚本字符串）。
+     * 适用于 Java 项目中直接定义的本体类。
+     */
+    public synchronized RegisterRsp registerOntology(Class<? extends Ontology> ontoClass) {
+        if (ontoClass == null) {
+            return RegisterRsp.fail("Ontology class cannot be null");
+        }
+        String fullName = ontoClass.getName();
+        if (registeredOntologies.containsKey(fullName)) {
+            return RegisterRsp.fail("Ontology " + fullName + " is already registered, please rename or update");
+        }
+        final Ontology instance;
+        try {
+            instance = ontoClass.getDeclaredConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            return RegisterRsp.fail("Failed to instantiate ontology " + fullName + ": " + e.getMessage());
+        }
+        instance.validate();
+
+        OntologyMetadata meta = new OntologyMetadata(ontoClass);
+        registeredOntologies.put(fullName, meta);
+        return RegisterRsp.success("Ontology registered successfully", Map.of(fullName, "SUCCESS"));
+    }
+
     public synchronized RegisterRsp registerOntologies(List<String> gdlScripts) {
         if (gdlScripts == null || gdlScripts.isEmpty()) {
             return RegisterRsp.fail("Empty script list");

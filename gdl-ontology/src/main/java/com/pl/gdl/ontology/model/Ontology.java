@@ -55,6 +55,8 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     /** 写操作时是否自动校验（默认 false；设为 true 后 save/update/upsert 先校验再写） */
     public boolean oValidateOnWrite = false;
     public CmdDatasource oDs;
+    /** 全局默认数据源：oDs 未设置时回退使用；通过 setDefaultDatasource 设置 */
+    private static volatile CmdDatasource defaultDatasource;
     public CmdDataframe oDataframe;
     public CmdDataframe queryDataframe;
 
@@ -64,6 +66,29 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
 
     public Ontology() {}
 
+    /** 设置全局默认数据源（oDs 未设置时自动使用） */
+    public static void setDefaultDatasource(CmdDatasource ds) {
+        defaultDatasource = ds;
+    }
+
+    /** 获取全局默认数据源 */
+    public static CmdDatasource getDefaultDatasource() {
+        return defaultDatasource;
+    }
+
+    /**
+     * 解析生效的数据源：优先 oDs，其次全局默认；两者都未设置时抛错（fail-fast，
+     * 避免静默返回 null 导致后续 NPE 难排查）。
+     */
+    protected CmdDatasource resolveDs() {
+        if (oDs != null) return oDs;
+        if (defaultDatasource != null) return defaultDatasource;
+        throw new com.pl.gdl.common.exception.GdlException(
+                "数据源未设置: " + getClass().getName() +
+                " 的 oDs 为 null 且未设置全局默认数据源，" +
+                "请调用 setDefaultDatasource(ds) 或为实例设置 oDs");
+    }
+
     public void validate() {
         if (oId == null || oId.isBlank()) throw new OntologyValidationException("oId is mandatory in " + getClass().getName());
         if (oName == null || oName.isBlank()) throw new OntologyValidationException("oName is mandatory in " + getClass().getName());
@@ -72,16 +97,19 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     }
 
     public CmdDataframe loadData() {
-        if (oTable != null && oDs != null) {
-            oDataframe = from(oDs, oTable);
-            // 软删除：默认过滤 deleted=1 的行；includeDeleted() 可关闭
-            String sdCol = softDeleteColumn();
-            if (sdCol != null && !includeDeletedFlag) {
-                oDataframe = oDataframe.where(sdCol + " = 0");
-            }
-            if (depends != null && depends.length > 0) {
-                oDataframe.depend(depends);
-            }
+        if (oTable == null || oTable.isBlank()) {
+            throw new com.pl.gdl.common.exception.GdlException(
+                    "oTable 未设置: " + getClass().getName());
+        }
+        CmdDatasource ds = resolveDs();
+        oDataframe = from(ds, oTable);
+        // 软删除：默认过滤 deleted=1 的行；includeDeleted() 可关闭
+        String sdCol = softDeleteColumn();
+        if (sdCol != null && !includeDeletedFlag) {
+            oDataframe = oDataframe.where(sdCol + " = 0");
+        }
+        if (depends != null && depends.length > 0) {
+            oDataframe.depend(depends);
         }
         return oDataframe;
     }
@@ -98,16 +126,18 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         if (oDataframe != null) {
             return oDataframe;
         }
-        if (oTable != null && oDs != null) {
-            CmdDataframe df = from(oDs, oTable);
-            // 软删除：默认过滤 deleted=1 的行；includeDeleted() 可关闭
-            String sdCol = softDeleteColumn();
-            if (sdCol != null && !includeDeletedFlag) {
-                df = df.where(sdCol + " = 0");
-            }
-            return df;
+        if (oTable == null || oTable.isBlank()) {
+            throw new com.pl.gdl.common.exception.GdlException(
+                    "oTable 未设置: " + getClass().getName());
         }
-        return null;
+        CmdDatasource ds = resolveDs();
+        CmdDataframe df = from(ds, oTable);
+        // 软删除：默认过滤 deleted=1 的行；includeDeleted() 可关闭
+        String sdCol = softDeleteColumn();
+        if (sdCol != null && !includeDeletedFlag) {
+            df = df.where(sdCol + " = 0");
+        }
+        return df;
     }
 
     // ---------------- 生命周期钩子 ----------------
@@ -415,6 +445,7 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     // Storage mutations：基于 JDBC 直接写物理表，record 的 key 支持本体属性名（自动映射物理列）
     private com.pl.gdl.dataframe.engine.JdbcExecutionEngine writeEngine() {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table");
+        CmdDatasource ds = resolveDs();
         com.pl.gdl.dataframe.engine.ExecutionEngine engine = null;
         try {
             engine = com.pl.gdl.runtime.script.GdlExecutionContext.get().getExecutionEngine();
@@ -424,16 +455,16 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
             return jdbc;
         }
         // 上下文非 JDBC（如 GDL 脚本默认 InMemoryEngine）时，尝试按本体数据源创建
-        if (oDs instanceof com.pl.gdl.dataframe.datasource.JdbcDatasource) {
+        if (ds instanceof com.pl.gdl.dataframe.datasource.JdbcDatasource) {
             com.pl.gdl.dataframe.engine.ExecutionEngine created =
-                    com.pl.gdl.dataframe.datasource.DatasourceRegistry.getDefault().createExecutionEngine(oDs);
+                    com.pl.gdl.dataframe.datasource.DatasourceRegistry.getDefault().createExecutionEngine(ds);
             if (created instanceof com.pl.gdl.dataframe.engine.JdbcExecutionEngine jdbc2) {
                 return jdbc2;
             }
         }
         throw new UnsupportedOperationException(
                 "Ontology 写操作需要 JDBC 数据源，当前数据源类型不支持: " +
-                        (oDs == null ? "null" : oDs.getClass().getSimpleName()));
+                        ds.getClass().getSimpleName());
     }
 
     public Ontology save(Map<String, Object> record) {

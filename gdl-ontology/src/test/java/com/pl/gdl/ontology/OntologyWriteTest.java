@@ -127,6 +127,41 @@ public class OntologyWriteTest {
     }
 
     @Test
+    void defaultDatasource_fallback() {
+        // oDs 未设置时，使用全局默认数据源
+        Ontology.setDefaultDatasource(ds);
+        try {
+            Tool t = new Tool(); // oDs 为 null
+            t.oDs = null;
+            t.loadData(); // 不应抛错
+            assertThat(t.oDataframe).isNotNull();
+        } finally {
+            Ontology.setDefaultDatasource(null);
+        }
+    }
+
+    @Test
+    void resolveDs_failFast() {
+        Ontology.setDefaultDatasource(null);
+        Tool t = new Tool();
+        t.oDs = null;
+        assertThatThrownBy(t::loadData)
+                .isInstanceOf(com.pl.gdl.common.exception.GdlException.class)
+                .hasMessageContaining("数据源未设置");
+    }
+
+    @Test
+    void registerByClass() {
+        var rsp = com.pl.gdl.ontology.registry.OntologyRegistry.getInstance()
+                .registerOntology(Tool.class);
+        assertThat(rsp.getStatus()).isEqualTo(
+                com.pl.gdl.common.model.RegisterRsp.STATUS_SUCCESS);
+        // 清理，避免影响其他测试
+        com.pl.gdl.ontology.registry.OntologyRegistry.getInstance()
+                .unregisterOntology(Tool.class.getName());
+    }
+
+    @Test
     void hasMany_fetchWithRelation() {
         Order order = new Order(); order.oDs = ds;
         Line line = new Line(); line.oDs = ds;
