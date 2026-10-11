@@ -122,12 +122,38 @@ public interface CmdDataframe {
     RowDataFrame collect();
 
     /**
+     * 统计当前链路的行数（SELECT COUNT(*)），用于分页总数。
+     * 这是一个终止操作（terminal operation）。
+     */
+    long count();
+
+    /**
+     * 取第一行（LIMIT 1），无数据返回 null。
+     * 这是一个终止操作（terminal operation）。
+     */
+    com.pl.gdl.common.model.Row first();
+
+    /**
+     * 判断是否有数据（LIMIT 1 探测）。
+     * 这是一个终止操作（terminal operation）。
+     */
+    default boolean isEmpty() {
+        return first() == null;
+    }
+
+    /**
      * 导出为 CSV 文件（UTF-8 编码，含表头，RFC 4180 转义）。
      * 这是一个终止操作（terminal operation）。
      *
      * @param filePath 目标文件路径
      */
     void writeCsv(String filePath);
+
+    /**
+     * 解释查询计划：返回算子链与生成的 SQL（不执行）。
+     * 用于调试与性能分析。
+     */
+    String explain();
 
     /**
      * 导出为 CSV 文件。

@@ -115,12 +115,19 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
      * 事务中则复用事务连接（不关闭）；非事务则每次取新连接。
      * 供本体 save/update/delete 等写回场景使用。
      */
+    /** 查询超时（秒），系统属性 gdl.jdbc.queryTimeoutSec，默认 0=不限制 */
+    private static int queryTimeoutSec() {
+        return Integer.getInteger("gdl.jdbc.queryTimeoutSec", 0);
+    }
+
     public int executeUpdate(String sql, java.util.List<Object> params) {
         boolean inTx = inTransaction();
         long start = System.currentTimeMillis();
         try {
             java.sql.Connection conn = writeConnection();
             try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                int timeout = queryTimeoutSec();
+                if (timeout > 0) ps.setQueryTimeout(timeout);
                 if (params != null) {
                     for (int i = 0; i < params.size(); i++) {
                         ps.setObject(i + 1, params.get(i));
@@ -153,6 +160,8 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
         try {
             java.sql.Connection conn = writeConnection();
             try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                int timeout = queryTimeoutSec();
+                if (timeout > 0) ps.setQueryTimeout(timeout);
                 for (java.util.List<Object> params : batchParams) {
                     for (int i = 0; i < params.size(); i++) {
                         ps.setObject(i + 1, params.get(i));

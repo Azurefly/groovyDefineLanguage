@@ -584,6 +584,8 @@ public class InMemoryEngine implements ExecutionEngine {
 
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
+            int timeout = Integer.getInteger("gdl.jdbc.queryTimeoutSec", 0);
+            if (timeout > 0) stmt.setQueryTimeout(timeout);
             boolean isQuery = sql.trim().toUpperCase(Locale.ROOT).startsWith("SELECT") ||
                     sql.trim().toUpperCase(Locale.ROOT).startsWith("WITH");
             if (isQuery) {

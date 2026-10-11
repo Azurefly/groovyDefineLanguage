@@ -448,6 +448,62 @@ public class CmdDataframeImpl implements CmdDataframe {
     }
 
     @Override
+    public long count() {
+        // 用 COUNT(*) 查询，避免拉全量数据
+        RowDataFrame result = new CmdDataframeImpl(
+                new com.pl.gdl.dataframe.operator.base.GroupOperator(
+                        operator, "", "count(*) as cnt"),
+                executionEngine).collect();
+        if (result.rowSize() == 0) return 0;
+        Object v = result.getRow(0).getValue("cnt");
+        return v instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(v));
+    }
+
+    @Override
+    public com.pl.gdl.common.model.Row first() {
+        RowDataFrame result = limit(1).collect();
+        return result.rowSize() == 0 ? null : result.getRow(0);
+    }
+
+    @Override
+    public String explain() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("== 算子链 ==\n");
+        LogicalOperator cur = operator;
+        int depth = 0;
+        while (cur != null) {
+            sb.append("  ".repeat(depth)).append(cur.getOperatorName());
+            String detail = operatorDetail(cur);
+            if (detail != null) sb.append("(").append(detail).append(")");
+            sb.append("\n");
+            cur = cur.getUpstream().isEmpty() ? null : cur.getUpstream().get(0);
+            depth++;
+            if (depth > 50) { sb.append("  ... (truncated)\n"); break; }
+        }
+        sb.append("== 生成 SQL ==\n");
+        try {
+            String sql = executionEngine instanceof com.pl.gdl.dataframe.engine.InMemoryEngine mem
+                    ? mem.toSql(operator)
+                    : executionEngine.toSql(operator);
+            sb.append(sql == null || sql.isBlank() ? "(非 SQL 算子，无 SQL)" : sql);
+        } catch (Exception e) {
+            sb.append("(SQL 生成失败: ").append(e.getMessage()).append(")");
+        }
+        return sb.toString();
+    }
+
+    private String operatorDetail(LogicalOperator op) {
+        if (op instanceof com.pl.gdl.dataframe.operator.base.WhereOperator w) return w.getCondition();
+        if (op instanceof com.pl.gdl.dataframe.operator.base.SelectOperator s)
+            return String.join(", ", s.getExpressions());
+        if (op instanceof com.pl.gdl.dataframe.operator.base.FromOperator f) return f.getTableName();
+        if (op instanceof com.pl.gdl.dataframe.operator.base.LimitOperator l)
+            return l.getOffset() + ", " + l.getLimit();
+        if (op instanceof com.pl.gdl.dataframe.operator.base.SortOperator so)
+            return String.join(", ", so.getSortExpressions());
+        return null;
+    }
+
     public RowDataFrame collect() {
         long start = System.currentTimeMillis();
         boolean fromCache = false;
