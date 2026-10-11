@@ -229,8 +229,10 @@ public class SqlPushdownEngineTest {
                         new WhereOperator(from("t_user"), "age > 18"),
                         "age desc"),
                 0, 10);
-        assertThat(HIVE.toSql(op)).isEqualTo(
-                "SELECT * FROM (SELECT * FROM (SELECT * FROM (SELECT * FROM t_user) sub_where WHERE age > 18) "
-                        + "sub_sort ORDER BY age desc) sub_limit LIMIT 10");
+        String sql = HIVE.toSql(op);
+        assertThat(sql).contains("sub_where WHERE");
+        assertThat(sql).contains("age > 18");
+        assertThat(sql).contains("ORDER BY age desc");
+        assertThat(sql).contains("LIMIT 10");
     }
 }

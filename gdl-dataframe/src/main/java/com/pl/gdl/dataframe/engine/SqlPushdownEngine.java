@@ -75,10 +75,28 @@ public class SqlPushdownEngine implements ExecutionEngine {
             return queryOp.getQuerySql();
         }
 
-        // WHERE：SELECT * FROM (上游) sub_where WHERE 条件
+        // WHERE：合并连续的 WHERE（a.where(x).where(y) -> WHERE x AND y），减少子查询嵌套
         if (operator instanceof WhereOperator whereOp) {
-            String base = toSqlUpstream(whereOp.getUpstream().get(0));
-            return "SELECT * FROM (" + base + ") sub_where WHERE " + whereOp.getCondition();
+            // 收集连续的 WHERE 条件
+            java.util.List<String> conditions = new java.util.ArrayList<>();
+            LogicalOperator cur = whereOp;
+            while (cur instanceof WhereOperator w) {
+                conditions.add(0, w.getCondition());
+                cur = w.getUpstream().isEmpty() ? null : w.getUpstream().get(0);
+                if (cur == null) break;
+            }
+            String base = cur == null ? "" : toSqlUpstream(cur);
+            if (base.isEmpty()) base = toSqlUpstream(whereOp.getUpstream().get(0));
+            String whereClause;
+            if (conditions.size() == 1) {
+                whereClause = conditions.get(0);
+            } else {
+                // 多个条件加括号保证 AND 优先级正确
+                java.util.List<String> wrapped = new java.util.ArrayList<>();
+                for (String c : conditions) wrapped.add("(" + c + ")");
+                whereClause = String.join(" AND ", wrapped);
+            }
+            return "SELECT * FROM (" + base + ") sub_where WHERE " + whereClause;
         }
 
         // SELECT：SELECT 表达式列表 FROM (上游) sub_select

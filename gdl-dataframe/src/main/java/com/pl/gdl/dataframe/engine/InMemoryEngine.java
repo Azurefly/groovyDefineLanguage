@@ -100,16 +100,38 @@ public class InMemoryEngine implements ExecutionEngine {
                     ins.append("?");
                 }
                 ins.append(")");
+                // 批量插入用事务包裹，避免每批自动提交开销；缓存列信息避免重复查找
+                boolean origAutoCommit = conn.getAutoCommit();
+                conn.setAutoCommit(false);
                 try (PreparedStatement ps = conn.prepareStatement(ins.toString())) {
+                    List<ColumnInfo> cols = df.getColumns();
+                    int colCount = cols.size();
+                    String[] colNames = new String[colCount];
+                    String[] colTypes = new String[colCount];
+                    for (int i = 0; i < colCount; i++) {
+                        colNames[i] = cols.get(i).getColumnName();
+                        colTypes[i] = cols.get(i).getDataTypeName();
+                    }
+                    int batchSize = 0;
                     for (Row row : df) {
-                        for (int i = 0; i < df.getColumns().size(); i++) {
-                            ColumnInfo col = df.getColumns().get(i);
-                            Object val = row.getValue(col.getColumnName());
-                            ps.setObject(i + 1, toH2Value(val, col.getDataTypeName()));
+                        for (int i = 0; i < colCount; i++) {
+                            Object val = row.getValue(colNames[i]);
+                            ps.setObject(i + 1, toH2Value(val, colTypes[i]));
                         }
                         ps.addBatch();
+                        // 每 5000 行执行一次，避免 batch 过大内存膨胀
+                        if (++batchSize >= 5000) {
+                            ps.executeBatch();
+                            batchSize = 0;
+                        }
                     }
-                    ps.executeBatch();
+                    if (batchSize > 0) ps.executeBatch();
+                    conn.commit();
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(origAutoCommit);
                 }
             }
         } catch (SQLException e) {
@@ -568,18 +590,22 @@ public class InMemoryEngine implements ExecutionEngine {
                 try (ResultSet rs = stmt.executeQuery(sql)) {
                     ResultSetMetaData md = rs.getMetaData();
                     int cols = md.getColumnCount();
-                    List<ColumnInfo> columns = new ArrayList<>();
+                    // 缓存列名数组，避免每行重复调用 getColumnLabel
+                    String[] colNames = new String[cols];
+                    List<ColumnInfo> columns = new ArrayList<>(cols);
                     for (int i = 1; i <= cols; i++) {
-                        ColumnInfo ci = new ColumnInfo(md.getColumnLabel(i), md.getColumnTypeName(i));
-                        columns.add(ci);
+                        colNames[i - 1] = md.getColumnLabel(i);
+                        columns.add(new ColumnInfo(colNames[i - 1], md.getColumnTypeName(i)));
                     }
                     RowDataFrame result = new RowDataFrame(columns);
+                    // 预分配行数（若可知）
                     while (rs.next()) {
-                        Row row = new Row();
-                        for (int i = 1; i <= cols; i++) {
-                            row.setValue(md.getColumnLabel(i), rs.getObject(i));
+                        // 用 LinkedHashMap 批量构造，减少逐个 put 开销
+                        Map<String, Object> vals = new LinkedHashMap<>(cols * 2);
+                        for (int i = 0; i < cols; i++) {
+                            vals.put(colNames[i], rs.getObject(i + 1));
                         }
-                        result.addRow(row);
+                        result.addRow(new Row(vals));
                     }
                     return result;
                 }

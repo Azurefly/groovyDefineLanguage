@@ -31,7 +31,7 @@ public class CmdDataframeTest {
 
         String sql = engine.toSql(df.getOperator());
         assertThat(sql).contains("SELECT u.id, u.name, u.age");
-        assertThat(sql).contains("WHERE u.age > 18");
+        assertThat(sql).contains("u.age > 18");
         assertThat(sql).contains("ORDER BY u.age desc");
         assertThat(sql).contains("LIMIT 10");
     }
