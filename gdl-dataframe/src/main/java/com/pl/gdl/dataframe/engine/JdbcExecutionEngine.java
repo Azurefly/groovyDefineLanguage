@@ -1,6 +1,7 @@
 package com.pl.gdl.dataframe.engine;
 
 import com.pl.gdl.common.exception.GdlExecutionException;
+import com.pl.gdl.common.util.JdbcUtils;
 import com.pl.gdl.common.model.ColumnInfo;
 import com.pl.gdl.common.model.Row;
 import com.pl.gdl.common.model.RowDataFrame;
@@ -323,7 +324,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
         String countSql = "SELECT COUNT(*) FROM (" + subSql
                 + ") sub_validate WHERE NOT (" + validateOp.getCondition() + ")";
         long violations;
-        try (Statement statement = connection.createStatement();
+        try (Statement statement = JdbcUtils.createStatement(connection);
              ResultSet rs = statement.executeQuery(countSql)) {
             violations = rs.next() ? rs.getLong(1) : 0;
         } catch (SQLException e) {
@@ -417,7 +418,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
         try {
             // 1. 透视值（去 NULL、确定性排序）
             List<String> pivotValues = new ArrayList<>();
-            try (Statement stmt = conn.createStatement();
+            try (Statement stmt = JdbcUtils.createStatement(conn);
                  ResultSet rs = stmt.executeQuery(
                          "SELECT DISTINCT " + pivotCol + " FROM (" + sourceSql + ") sub_pv" +
                          " WHERE " + pivotCol + " IS NOT NULL ORDER BY 1")) {
@@ -446,7 +447,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
             sql.append(" FROM (").append(sourceSql).append(") sub_pivot");
             if (!groupRefs.isEmpty()) sql.append(" GROUP BY ").append(String.join(", ", groupRefs));
             // 3. 执行并组装（列名转小写，与 JDBC 引擎统一）
-            try (Statement stmt = conn.createStatement();
+            try (Statement stmt = JdbcUtils.createStatement(conn);
                  ResultSet rs = stmt.executeQuery(sql.toString())) {
                 ResultSetMetaData md = rs.getMetaData();
                 List<ColumnInfo> columns = new ArrayList<>();
@@ -487,7 +488,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
 
     /** 零数据查询，仅取列元数据。 */
     private List<ColumnInfo> queryColumns(Connection conn, String sql) throws SQLException {
-        try (Statement stmt = conn.createStatement();
+        try (Statement stmt = JdbcUtils.createStatement(conn);
              ResultSet rs = stmt.executeQuery(sql)) {
             ResultSetMetaData meta = rs.getMetaData();
             List<ColumnInfo> cols = new ArrayList<>();
@@ -524,7 +525,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
             }
         }
         sql.append(" FROM (").append(sourceSql).append(") sub_describe_batch");
-        try (Statement stmt = conn.createStatement();
+        try (Statement stmt = JdbcUtils.createStatement(conn);
              ResultSet rs = stmt.executeQuery(sql.toString())) {
             if (!rs.next()) return;
             long rowCount = rs.getLong("rc");
@@ -581,7 +582,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
             ddl.append(name).append(" ").append(type);
         }
         ddl.append(")");
-        try (Statement stmt = connection.createStatement()) {
+        try (Statement stmt = JdbcUtils.createStatement(connection)) {
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
             stmt.execute(ddl.toString());
             if (!data.getRows().isEmpty()) {
@@ -608,7 +609,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
     private void dropTempTables(List<String> tables) {
         if (tables == null || tables.isEmpty()) return;
         try (Connection conn = connectionManager.getConnection(datasource);
-             Statement stmt = conn.createStatement()) {
+             Statement stmt = JdbcUtils.createStatement(conn)) {
             for (String t : tables) {
                 try {
                     stmt.execute("DROP TABLE IF EXISTS " + t);
@@ -634,7 +635,7 @@ public class JdbcExecutionEngine extends SqlPushdownEngine {
 
     private RowDataFrame executeStatements(Connection connection, List<String> statements) throws SQLException {
         RowDataFrame result = new RowDataFrame();
-        try (Statement statement = connection.createStatement()) {
+        try (Statement statement = JdbcUtils.createStatement(connection)) {
             for (String sql : statements) {
                 if (sql.isBlank()) continue;
                 boolean hasResultSet = statement.execute(sql);

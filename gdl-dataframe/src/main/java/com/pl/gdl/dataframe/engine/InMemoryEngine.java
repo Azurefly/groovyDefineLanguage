@@ -1,6 +1,7 @@
 package com.pl.gdl.dataframe.engine;
 
 import com.pl.gdl.common.exception.GdlExecutionException;
+import com.pl.gdl.common.util.JdbcUtils;
 import com.pl.gdl.common.model.ColumnInfo;
 import com.pl.gdl.common.model.Row;
 import com.pl.gdl.common.model.RowDataFrame;
@@ -64,7 +65,7 @@ public class InMemoryEngine implements ExecutionEngine {
             throw new IllegalArgumentException("非法函数名: " + name);
         }
         try (Connection conn = dataSource.getConnection();
-             java.sql.Statement stmt = conn.createStatement()) {
+             java.sql.Statement stmt = JdbcUtils.createStatement(conn)) {
             stmt.execute("CREATE ALIAS IF NOT EXISTS " + name +
                     " FOR \"" + clazz.getName() + "." + methodName + "\"");
         } catch (java.sql.SQLException e) {
@@ -86,7 +87,7 @@ public class InMemoryEngine implements ExecutionEngine {
                 sb.append(col.getColumnName()).append(" ").append(toCanonicalDdlType(col.getDataTypeName()));
             }
             sb.append(")");
-            try (Statement stmt = conn.createStatement()) {
+            try (Statement stmt = JdbcUtils.createStatement(conn)) {
                 // registerTable has replacement semantics: keep the direct in-memory view
                 // and the SQL-backed view consistent, including when the schema changes.
                 stmt.execute("DROP TABLE IF EXISTS " + tableName);
@@ -151,7 +152,7 @@ public class InMemoryEngine implements ExecutionEngine {
         String tableName = "__pivot_" + System.nanoTime();
         registerTable(tableName, input);
         try (java.sql.Connection conn = dataSource.getConnection();
-             java.sql.Statement stmt = conn.createStatement()) {
+             java.sql.Statement stmt = JdbcUtils.createStatement(conn)) {
             // 获取透视列的唯一值
             java.util.List<String> pivotValues = new java.util.ArrayList<>();
             try (java.sql.ResultSet rs = stmt.executeQuery(
@@ -211,7 +212,7 @@ public class InMemoryEngine implements ExecutionEngine {
             throw new RuntimeException("透视表执行失败: " + e.getMessage(), e);
         } finally {
             try (java.sql.Connection conn = dataSource.getConnection();
-                 java.sql.Statement stmt = conn.createStatement()) {
+                 java.sql.Statement stmt = JdbcUtils.createStatement(conn)) {
                 stmt.execute("DROP TABLE IF EXISTS " + tableName);
             } catch (Exception ignored) {
             }
@@ -238,7 +239,7 @@ public class InMemoryEngine implements ExecutionEngine {
         String tableName = "__describe_" + System.nanoTime();
         registerTable(tableName, input);
         try (java.sql.Connection conn = dataSource.getConnection();
-             java.sql.Statement stmt = conn.createStatement()) {
+             java.sql.Statement stmt = JdbcUtils.createStatement(conn)) {
             for (com.pl.gdl.common.model.ColumnInfo col : input.getColumns()) {
                 String cn = col.getColumnName();
                 String sql = "SELECT COUNT(*), COUNT(" + cn + "), COUNT(DISTINCT " + cn + "), " +
@@ -277,7 +278,7 @@ public class InMemoryEngine implements ExecutionEngine {
             throw new RuntimeException("数据探查执行失败: " + e.getMessage(), e);
         } finally {
             try (java.sql.Connection conn = dataSource.getConnection();
-                 java.sql.Statement stmt = conn.createStatement()) {
+                 java.sql.Statement stmt = JdbcUtils.createStatement(conn)) {
                 stmt.execute("DROP TABLE IF EXISTS " + tableName);
             } catch (Exception ignored) {
             }
@@ -301,7 +302,7 @@ public class InMemoryEngine implements ExecutionEngine {
         try {
             String sql = "SELECT COUNT(*) FROM " + tableName + " WHERE NOT (" + validateOp.getCondition() + ")";
             try (java.sql.Connection conn = dataSource.getConnection();
-                 java.sql.Statement stmt = conn.createStatement();
+                 java.sql.Statement stmt = JdbcUtils.createStatement(conn);
                  java.sql.ResultSet rs = stmt.executeQuery(sql)) {
                 if (rs.next()) {
                     long violations = rs.getLong(1);
@@ -317,7 +318,7 @@ public class InMemoryEngine implements ExecutionEngine {
             }
         } finally {
             try (java.sql.Connection conn = dataSource.getConnection();
-                 java.sql.Statement stmt = conn.createStatement()) {
+                 java.sql.Statement stmt = JdbcUtils.createStatement(conn)) {
                 stmt.execute("DROP TABLE IF EXISTS " + tableName);
             } catch (Exception ignored) {
             }
@@ -583,7 +584,7 @@ public class InMemoryEngine implements ExecutionEngine {
         }
 
         try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
+             Statement stmt = JdbcUtils.createStatement(conn)) {
             int timeout = Integer.getInteger("gdl.jdbc.queryTimeoutSec", 0);
             if (timeout > 0) stmt.setQueryTimeout(timeout);
             boolean isQuery = sql.trim().toUpperCase(Locale.ROOT).startsWith("SELECT") ||
