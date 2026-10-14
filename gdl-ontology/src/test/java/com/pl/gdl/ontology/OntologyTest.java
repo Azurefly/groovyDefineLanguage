@@ -57,7 +57,8 @@ public class OntologyTest {
         OntologyMetadata meta = new OntologyMetadata((Class<? extends com.pl.gdl.ontology.model.Ontology>) clazz);
         String ddl = OntologyDdlGenerator.generateHiveDdl(meta);
 
-        assertThat(ddl).contains("CREATE TABLE IF NOT EXISTS \"chat\"");
+        // DDL 优先使用本体实例的 oTable（t_chat），而非类名小写（chat）
+        assertThat(ddl).contains("CREATE TABLE IF NOT EXISTS \"t_chat\"");
         assertThat(ddl).contains("STORED AS ORC");
     }
 }

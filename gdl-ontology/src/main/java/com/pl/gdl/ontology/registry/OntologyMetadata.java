@@ -60,6 +60,20 @@ public class OntologyMetadata {
      * <p>未声明地域时返回空列表，调用方应将其视作全局可用；
      * 实例化失败时打 warn 日志并返回空列表。</p>
      */
+    /**
+     * 返回本体实例的 oTable（物理表名）。实例化失败时返回 null，
+     * 调用方应回退到类名推导。
+     */
+    public String getOTable() {
+        try {
+            Ontology instance = ontologyClass.getDeclaredConstructor().newInstance();
+            return instance.oTable;
+        } catch (Exception e) {
+            log.warn("无法实例化本体类 {} 以读取 oTable: {}", ontologyClass.getName(), e.toString());
+            return null;
+        }
+    }
+
     public List<String> getAreaCodes() {
         try {
             Ontology instance = ontologyClass.getDeclaredConstructor().newInstance();

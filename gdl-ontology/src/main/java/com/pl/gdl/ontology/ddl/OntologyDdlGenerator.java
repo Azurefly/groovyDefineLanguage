@@ -32,7 +32,12 @@ public class OntologyDdlGenerator {
         String type = table != null ? table.type() : "ORC";
         String remarks = table != null ? table.remarks() : "";
 
-        String tableName = SqlSanitizer.quoteIdentifier(metadata.getOntologyClass().getSimpleName().toLowerCase());
+        // 优先使用本体实例的 oTable（用户显式设置的物理表名）；未设置时回退到类名小写
+        String oTable = metadata.getOTable();
+        String tableName = SqlSanitizer.quoteIdentifier(
+                (oTable != null && !oTable.isBlank())
+                        ? oTable
+                        : metadata.getOntologyClass().getSimpleName().toLowerCase());
 
         StringJoiner colsSj = new StringJoiner(",\n  ");
         List<String> partitions = new ArrayList<>();

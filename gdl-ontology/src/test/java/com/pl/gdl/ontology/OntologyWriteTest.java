@@ -151,6 +151,76 @@ public class OntologyWriteTest {
     }
 
     @Test
+    void count_withDefaultDatasource() {
+        // P0-1：只设默认源时 count() 不应 NPE
+        Ontology.setDefaultDatasource(ds);
+        try {
+            Tool t = new Tool();
+            t.oDs = null;
+            t.save(new LinkedHashMap<>(Map.of("toolCode", "TC1", "toolName", "铣刀")));
+            assertThat(t.count()).isEqualTo(1);
+        } finally {
+            Ontology.setDefaultDatasource(null);
+        }
+    }
+
+    @Test
+    void saveBatch_columnMisalignment() {
+        // P0-2：第二条记录 key 顺序不同时，仍按列名对齐，不错位
+        Tool t = tool();
+        var r1 = new LinkedHashMap<String, Object>(Map.of("toolCode", "B1", "toolName", "刀1", "unitPrice", 10));
+        var r2 = new LinkedHashMap<String, Object>();
+        r2.put("unitPrice", 20);
+        r2.put("toolName", "刀2");
+        r2.put("toolCode", "B2");
+        t.saveBatch(List.of(r1, r2));
+        var df = t.where("tool_code = 'B2'").select("tool_name", "unit_price").getQueryDataframe();
+        var row = df.collect().getRow(0);
+        assertThat((Object) row.getValue("tool_name")).isEqualTo("刀2");
+        assertThat((Object) row.getValue("unit_price")).isEqualTo(new java.math.BigDecimal("20.00"));
+    }
+
+    @Test
+    void saveBatch_extraColumnThrows() {
+        // P0-2：后续记录多列时抛错，不静默错位
+        Tool t = tool();
+        var r1 = new LinkedHashMap<String, Object>(Map.of("toolCode", "E1", "toolName", "刀"));
+        var r2 = new LinkedHashMap<String, Object>(Map.of("toolCode", "E2", "toolName", "刀", "extra", "x"));
+        assertThatThrownBy(() -> t.saveBatch(List.of(r1, r2)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("列不一致");
+    }
+
+    @Test
+    void reset_clearsWhereConditions() {
+        // P1-4：reset 后 where 条件不污染下一次查询
+        Tool t = tool();
+        t.save(new LinkedHashMap<>(Map.of("toolCode", "R1", "toolName", "铣刀")));
+        t.save(new LinkedHashMap<>(Map.of("toolCode", "R2", "toolName", "钻头")));
+        assertThat(t.where("tool_code = 'R1'").count()).isEqualTo(1);
+        t.reset();
+        assertThat(t.count()).isEqualTo(2);
+    }
+
+    @Test
+    void ddl_usesOTable() {
+        // P1-3：DDL 使用 oTable 而非类名
+        var meta = new com.pl.gdl.ontology.registry.OntologyMetadata(Tool.class);
+        String ddl = com.pl.gdl.ontology.ddl.OntologyDdlGenerator.generateHiveDdl(meta);
+        assertThat(ddl).contains("t_tool_w");
+    }
+
+    @Test
+    void dropTable_works() {
+        // P2-5：dropTable 真实可用
+        Tool t = tool();
+        t.dropTable();
+        // 表已删，再 save 应失败（表不存在）
+        assertThatThrownBy(() -> t.save(new LinkedHashMap<>(Map.of("toolCode", "D1", "toolName", "刀"))))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
     void registerByClass() {
         var rsp = com.pl.gdl.ontology.registry.OntologyRegistry.getInstance()
                 .registerOntology(Tool.class);

@@ -22,6 +22,8 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     private final List<String> whereConditions = new ArrayList<>();
     /** 表列名缓存（小写），用于审计字段/乐观锁的列存在性判断 */
     private volatile java.util.Set<String> tableColumnsCache = null;
+    /** 属性名->物理列名映射缓存（构造后字段值通常不再变，缓存避免每次反射扫描） */
+    private volatile Map<String, String> attributeColumnMapCache = null;
     /** 生命周期钩子：事件名 -> 闭包列表（beforeSave/afterSave/beforeUpdate/afterUpdate/beforeDelete/afterDelete） */
     private final Map<String, List<groovy.lang.Closure<?>>> hooks = new LinkedHashMap<>();
     /** 关系定义：name -> Relation */
@@ -116,8 +118,8 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
 
     public CmdDataframe loadData(CmdDataframe outerData) {
         this.oDataframe = outerData;
-        if (oTable != null && oDs != null && outerData != null) {
-            this.oDataframe = outerData.to(oDs, oTable);
+        if (oTable != null && outerData != null) {
+            this.oDataframe = outerData.to(resolveDs(), oTable);
         }
         return this.oDataframe;
     }
@@ -232,6 +234,19 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         return this;
     }
 
+    /**
+     * 重置查询状态：清空已累积的 where 条件与当前查询链。
+     * 同一实例复用于多次独立查询时调用，避免前一次查询的条件污染下一次。
+     * 例：{@code tool.where("a=1").count(); tool.reset().where("b=2").count();}
+     * 注意：不重置 includeDeleted 标志与关系定义。
+     */
+    public Ontology reset() {
+        whereConditions.clear();
+        queryDataframe = null;
+        oDataframe = null;
+        return this;
+    }
+
     public CmdDataframe getQueryDataframe(String... codes) {
         if (queryDataframe == null) {
             queryDataframe = genODataframe();
@@ -292,9 +307,10 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         final long[] result = new long[1];
         // 复用 executeUpdate 的连接逻辑，执行查询
         try {
+            CmdDatasource ds = resolveDs();
             java.sql.Connection conn = engine.getDatasource() != null
                     ? com.pl.gdl.dataframe.engine.JdbcConnectionManager.getDefault()
-                            .getConnection((com.pl.gdl.dataframe.datasource.JdbcDatasource) oDs)
+                            .getConnection((com.pl.gdl.dataframe.datasource.JdbcDatasource) ds)
                     : null;
             try (java.sql.Statement st = conn.createStatement();
                  java.sql.ResultSet rs = st.executeQuery(sql)) {
@@ -313,8 +329,9 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         if (tableColumnsCache != null) return tableColumnsCache;
         java.util.Set<String> cols = new java.util.HashSet<>();
         try {
+            CmdDatasource ds = resolveDs();
             java.sql.Connection conn = com.pl.gdl.dataframe.engine.JdbcConnectionManager.getDefault()
-                    .getConnection((com.pl.gdl.dataframe.datasource.JdbcDatasource) oDs);
+                    .getConnection((com.pl.gdl.dataframe.datasource.JdbcDatasource) ds);
             try {
                 java.sql.DatabaseMetaData meta = conn.getMetaData();
                 // H2 等库 unquoted 标识符存大写，两种 case 都试
@@ -591,16 +608,34 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
             fireBefore("beforeSave", r);
         }
         Map<String, String> attrMap = attributeColumnMap();
+        // 列顺序以第一条记录为准；后续记录按列名对齐（缺失填 null），
+        // 避免因 key 顺序不同导致值错位写入错误列（静默数据损坏）。
         List<String> columns = new ArrayList<>();
+        List<String> columnKeys = new ArrayList<>(); // 与 columns 一一对应的 record key
         List<java.util.List<Object>> batchParams = new ArrayList<>();
         boolean first = true;
         for (Map<String, Object> record : records) {
-            List<Object> values = new ArrayList<>();
-            for (Map.Entry<String, Object> e : record.entrySet()) {
-                if (first) columns.add(attrMap.getOrDefault(e.getKey(), e.getKey()));
-                values.add(e.getValue());
+            if (first) {
+                for (String k : record.keySet()) {
+                    columnKeys.add(k);
+                    columns.add(attrMap.getOrDefault(k, k));
+                }
+                first = false;
+            } else {
+                // 校验：后续记录不得包含第一条没有的列
+                for (String k : record.keySet()) {
+                    if (!columnKeys.contains(k)) {
+                        throw new IllegalArgumentException(
+                                "saveBatch 记录列不一致：后续记录包含首条没有的列 '" + k +
+                                "'，请保证所有记录 key 集合一致");
+                    }
+                }
             }
-            first = false;
+            // 按 columnKeys 顺序取值，缺失填 null
+            List<Object> values = new ArrayList<>();
+            for (String k : columnKeys) {
+                values.add(record.get(k));
+            }
             batchParams.add(values);
         }
         String sql = "INSERT INTO " + oTable + " (" + String.join(", ", columns) + ") VALUES (" +
@@ -1066,14 +1101,27 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
         return this;
     }
 
+    /**
+     * 为物理表追加列（ALTER TABLE ADD COLUMN）。
+     *
+     * @param fields 列定义，格式如 {@code "age INT, nickname VARCHAR(64)"}，
+     *               多列用逗号分隔。列名需符合 SQL 标识符规范。
+     */
     public void addColumns(String fields) {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table");
-        throw new UnsupportedOperationException("Ontology.addColumns 尚未实现");
+        if (fields == null || fields.isBlank()) throw new IllegalArgumentException("addColumns fields 不能为空");
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        engine.executeUpdate("ALTER TABLE " + oTable + " ADD COLUMN " + fields, Collections.emptyList());
+        // 表结构变了，失效列名缓存
+        tableColumnsCache = null;
     }
 
+    /** 删除物理表（DROP TABLE IF EXISTS）。 */
     public void dropTable() {
         if (oTable == null) throw new RuntimeException("Ontology has no physical table");
-        throw new UnsupportedOperationException("Ontology.dropTable 尚未实现");
+        com.pl.gdl.dataframe.engine.JdbcExecutionEngine engine = writeEngine();
+        engine.executeUpdate("DROP TABLE IF EXISTS " + oTable, Collections.emptyList());
+        tableColumnsCache = null;
     }
 
     /**
@@ -1081,6 +1129,7 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
      * 例如 {@code toolCode -&gt; tool_code}。
      */
     protected Map<String, String> attributeColumnMap() {
+        if (attributeColumnMapCache != null) return attributeColumnMapCache;
         Map<String, String> map = new LinkedHashMap<>();
         for (Field f : getClass().getDeclaredFields()) {
             if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
@@ -1095,6 +1144,7 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
             } catch (IllegalAccessException ignored) {
             }
         }
+        attributeColumnMapCache = map;
         return map;
     }
 
@@ -1158,6 +1208,10 @@ public abstract class Ontology extends GroovyObjectSupport implements GroovyInte
     // Metaclass interception for areaCode drifting
     @Override
     public Object invokeMethod(String name, Object args) {
+        // 快速路径：未声明 areaCodes 时无需漂移拦截，直接委托（避免 callDepth bookkeeping 开销）
+        if (areaCodes.isEmpty()) {
+            return getMetaClass().invokeMethod(this, name, args);
+        }
         boolean isOutermost = (callDepth == 0);
         if (isOutermost && !areaCodes.isEmpty()) {
             beginMethodCall(name, args);

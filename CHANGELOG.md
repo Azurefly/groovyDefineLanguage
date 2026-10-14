@@ -12,7 +12,15 @@
 
 ## [Unreleased]
 
+### 修复
+- 本体：`count()`/`tableColumns()`/`loadData(outerData)` 改用 `resolveDs()`，只设默认数据源时不再 NPE
+- 本体：`saveBatch` 按列名对齐（缺失填 null，多余列抛错），修复值错位静默写错数据
+- 本体：DDL 生成器优先使用 `oTable`（原用类名小写，与查询表名对不上）
+- 本体：新增 `reset()` 清空累积的 where 条件，实例复用不再被旧条件污染
+
 ### 新增
+- 本体：`addColumns(fields)` / `dropTable()` 真实实现（原抛 UnsupportedOperationException）
+- 本体：`attributeColumnMap()` 缓存（避免每次反射扫描）；`invokeMethod` 无 areaCodes 时走快速路径
 - API：`CmdDataframe.count()`（COUNT(*) 下推）、`first()`、`isEmpty()`、`explain()`（算子链 + SQL）
 - 测试：`SqlSafeTest`（7）、`GdlMetricsTest`（4）、`OntologyWriteTest`（5，H2 真实库）
 
